@@ -77,31 +77,31 @@ class Solver:
                         continue
 
                     # Rule 2: diagonal pair of C + one corner O → last must be C
-                    # Pattern 1: C at (r,c) and (r+1,c+1), O at (r,c+1) → (r+1,c)=C
+                    # Case 1: diagonal \ (v0==v3)
                     v0, v1, v2, v3 = vals
-                    if v0 != self.UNKNOWN and v0 == v3 and v0 != v1 and v1 != self.UNKNOWN:
-                        if v2 == self.UNKNOWN:
+                    if v0 != self.UNKNOWN and v0 == v3:
+                        # v1 opposite known, v2 unknown → v2 = v0
+                        if v1 != self.UNKNOWN and v1 != v0 and v2 == self.UNKNOWN:
                             changed = True
                             self._set(r+1, c, v0)
                             hit = True
                             continue
-                    # Pattern 2: C at (r,c+1) and (r+1,c), O at (r,c) → (r+1,c+1)=C
-                    if v1 != self.UNKNOWN and v1 == v2 and v1 != v0 and v0 != self.UNKNOWN:
-                        if v3 == self.UNKNOWN:
-                            changed = True
-                            self._set(r+1, c+1, v1)
-                            hit = True
-                            continue
-                    # Pattern 3: C at (r,c) and (r+1,c+1), O at (r+1,c) → (r,c+1)=C
-                    if v0 != self.UNKNOWN and v0 == v3 and v0 != v2 and v2 != self.UNKNOWN:
-                        if v1 == self.UNKNOWN:
+                        # v2 opposite known, v1 unknown → v1 = v0
+                        if v2 != self.UNKNOWN and v2 != v0 and v1 == self.UNKNOWN:
                             changed = True
                             self._set(r, c+1, v0)
                             hit = True
                             continue
-                    # Pattern 4: C at (r,c+1) and (r+1,c), O at (r+1,c+1) → (r,c)=C
-                    if v1 != self.UNKNOWN and v1 == v2 and v1 != v3 and v3 != self.UNKNOWN:
-                        if v0 == self.UNKNOWN:
+                    # Case 2: diagonal / (v1==v2)
+                    if v1 != self.UNKNOWN and v1 == v2:
+                        # v0 opposite known, v3 unknown → v3 = v1
+                        if v0 != self.UNKNOWN and v0 != v1 and v3 == self.UNKNOWN:
+                            changed = True
+                            self._set(r+1, c+1, v1)
+                            hit = True
+                            continue
+                        # v3 opposite known, v0 unknown → v0 = v1
+                        if v3 != self.UNKNOWN and v3 != v1 and v0 == self.UNKNOWN:
                             changed = True
                             self._set(r, c, v1)
                             hit = True
