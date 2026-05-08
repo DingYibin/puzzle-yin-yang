@@ -59,7 +59,7 @@ The `decode(task, N)` function produces `list[list[int]]` for use by the solver.
 - `6`/`7`/`8` → 15×15
 - `9`/`10`/`11` → 20×20
 - `12`/`13`/`14` → 25×25
-- `12` = daily, `13` = weekly, `14` = monthly
+- `15` = 30×30 (daily), `16` = 35×35 (weekly), `17` = 40×40 (monthly)
 
 CLI `--size` uses human keys (`6`, `10`, `15`, `20`, `25`) with optional difficulty suffix (`e`/`n`/`h`).
 

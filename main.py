@@ -41,9 +41,12 @@ SIZE_MAP = {
     '25e': '12',    # 25x25 easy
     '25n': '13',    # 25x25 normal
     '25h': '14',    # 25x25 hard
-    'daily': '12',
-    'weekly': '13',
-    'monthly': '14',
+    '30': '15',     # 30x30 (daily)
+    '35': '16',     # 35x35 (weekly)
+    '40': '17',     # 40x40 (monthly)
+    'daily': '15',
+    'weekly': '16',
+    'monthly': '17',
 }
 
 
