@@ -327,28 +327,59 @@ class Solver:
 
         return True
 
-    # ---- connectivity check (full grid) ----
-    def _conn(self, color):
-        for r in range(self.N):
-            for c in range(self.N):
-                if self.g[r][c] == color:
-                    seen = [[False]*self.N for _ in range(self.N)]
-                    q = deque([(r,c)])
-                    seen[r][c] = True
-                    cnt = 0
-                    while q:
-                        cr, cc = q.popleft()
-                        cnt += 1
-                        for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
-                            nr, nc = cr+dr, cc+dc
-                            if 0 <= nr < self.N and 0 <= nc < self.N and not seen[nr][nc] and self.g[nr][nc] == color:
-                                seen[nr][nc] = True
-                                q.append((nr, nc))
-                    return cnt == sum(1 for r2 in range(self.N) for c2 in range(self.N) if self.g[r2][c2] == color)
-        return True
-
+    # ---- connectivity check (union-find) ----
     def _ok(self):
-        return self._conn(self.WHITE) and self._conn(self.BLACK)
+        """
+        Check connectivity via Union-Find: adjacent same-color cells are merged.
+        Both colors must each form at most 1 connected component.
+        """
+        N = self.N
+        parent = list(range(N * N))
+        rank = [0] * (N * N)
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(x, y):
+            rx, ry = find(x), find(y)
+            if rx == ry:
+                return
+            if rank[rx] < rank[ry]:
+                parent[rx] = ry
+            elif rank[rx] > rank[ry]:
+                parent[ry] = rx
+            else:
+                parent[ry] = rx
+                rank[rx] += 1
+
+        for r in range(N):
+            for c in range(N):
+                v = self.g[r][c]
+                if v == self.UNKNOWN:
+                    continue
+                idx = r * N + c
+                if c + 1 < N and self.g[r][c + 1] == v:
+                    union(idx, r * N + c + 1)
+                if r + 1 < N and self.g[r + 1][c] == v:
+                    union(idx, (r + 1) * N + c)
+
+        white_roots = set()
+        black_roots = set()
+        for r in range(N):
+            for c in range(N):
+                v = self.g[r][c]
+                if v == self.UNKNOWN:
+                    continue
+                root = find(r * N + c)
+                if v == self.WHITE:
+                    white_roots.add(root)
+                else:
+                    black_roots.add(root)
+
+        return len(white_roots) <= 1 and len(black_roots) <= 1
 
     def _done(self):
         for r in range(self.N):
