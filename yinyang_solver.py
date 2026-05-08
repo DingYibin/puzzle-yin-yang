@@ -10,8 +10,9 @@ from collections import deque
 class Solver:
     UNKNOWN, WHITE, BLACK = 0, 1, 2
 
-    def __init__(self, time_limit=5.0):
+    def __init__(self, time_limit=5.0, verbose=False):
         self.tlim = time_limit
+        self.verbose = verbose
         self.N = 0
         self.g = []       # grid
         self.fixed = []    # given cells
@@ -454,6 +455,12 @@ class Solver:
         self._st = []
         if not self._propagate():
             return False
+        if not self._surrounded():
+            return False
+        if self.verbose:
+            unk = sum(1 for r in range(self.N) for c in range(self.N) if self.g[r][c] == self.UNKNOWN)
+            print(f"\n传播后（{unk} 格未知）:")
+            self.pc()
         if self._done():
             return self._ok()
         return self._dfs()
@@ -537,7 +544,7 @@ def decode(t: str, n: int):
 
 
 def solve(grid, tl=5.0, vb=True):
-    s = Solver(time_limit=tl)
+    s = Solver(time_limit=tl, verbose=vb)
     s.load(grid)
     if vb:
         print(f"\n{s.N}x{s.N}")
