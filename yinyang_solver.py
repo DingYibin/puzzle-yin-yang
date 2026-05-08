@@ -458,8 +458,6 @@ class Solver:
         if not self._surrounded():
             return False
         if self.verbose:
-            unk = sum(1 for r in range(self.N) for c in range(self.N) if self.g[r][c] == self.UNKNOWN)
-            print(f"\n传播后（{unk} 格未知）:")
             self.pc()
         if self._done():
             return self._ok()

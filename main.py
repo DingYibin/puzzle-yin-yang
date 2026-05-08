@@ -159,6 +159,7 @@ def main():
     print_only = '-p' in sys.argv
     time_limit = 10.0
     no_color = '--no-color' in sys.argv
+    verbose = '--verbose' in sys.argv or '-v' in sys.argv
 
     # Parse args
     args = sys.argv[1:]
@@ -245,7 +246,7 @@ def main():
         pass
 
     # Solve
-    solver = Solver(time_limit=time_limit)
+    solver = Solver(time_limit=time_limit, verbose=verbose)
     solver.load(grid)
     print(f"\n求解 {solver.N}x{solver.N} Yin-Yang 谜题...")
     solver.pc()
