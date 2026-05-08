@@ -48,7 +48,9 @@ class Solver:
         """
         Rule 1: 2×2 block has 3 same → 4th must be opposite.
         Rule 2: 2×2 block has diagonal pair of C and one corner of O → last must be C.
+        Returns True if any cell was changed, False otherwise.
         """
+        changed = False
         while True:
             hit = False
             for r in range(self.N-1):
@@ -69,11 +71,9 @@ class Solver:
                     if uk is not None and (wc == 3 or bc == 3):
                         x, y = cells[uk]
                         nv = self.BLACK if wc == 3 else self.WHITE
-                        if self.fixed[x][y] and self.g[x][y] != nv:
-                            return False
-                        if self.g[x][y] != nv:
-                            self._set(x, y, nv)
-                            hit = True
+                        changed = True
+                        self._set(x, y, nv)
+                        hit = True
                         continue
 
                     # Rule 2: diagonal pair of C + one corner O → last must be C
@@ -81,39 +81,35 @@ class Solver:
                     v0, v1, v2, v3 = vals
                     if v0 != self.UNKNOWN and v0 == v3 and v0 != v1 and v1 != self.UNKNOWN:
                         if v2 == self.UNKNOWN:
-                            if self.fixed[r+1][c] and self.g[r+1][c] != v0:
-                                return False
+                            changed = True
                             self._set(r+1, c, v0)
                             hit = True
                             continue
                     # Pattern 2: C at (r,c+1) and (r+1,c), O at (r,c) → (r+1,c+1)=C
                     if v1 != self.UNKNOWN and v1 == v2 and v1 != v0 and v0 != self.UNKNOWN:
                         if v3 == self.UNKNOWN:
-                            if self.fixed[r+1][c+1] and self.g[r+1][c+1] != v1:
-                                return False
+                            changed = True
                             self._set(r+1, c+1, v1)
                             hit = True
                             continue
                     # Pattern 3: C at (r,c) and (r+1,c+1), O at (r+1,c) → (r,c+1)=C
                     if v0 != self.UNKNOWN and v0 == v3 and v0 != v2 and v2 != self.UNKNOWN:
                         if v1 == self.UNKNOWN:
-                            if self.fixed[r][c+1] and self.g[r][c+1] != v0:
-                                return False
+                            changed = True
                             self._set(r, c+1, v0)
                             hit = True
                             continue
                     # Pattern 4: C at (r,c+1) and (r+1,c), O at (r+1,c+1) → (r,c)=C
                     if v1 != self.UNKNOWN and v1 == v2 and v1 != v3 and v3 != self.UNKNOWN:
                         if v0 == self.UNKNOWN:
-                            if self.fixed[r][c] and self.g[r][c] != v1:
-                                return False
+                            changed = True
                             self._set(r, c, v1)
                             hit = True
                             continue
 
             if not hit:
                 break
-        return True
+        return changed
 
     # ---- component analysis & bridge rule ----
     def _find_comps(self, color):
@@ -202,10 +198,7 @@ class Solver:
     def _propagate(self):
         """Apply deduction rules until stable (p2 + bridge + perimeter)."""
         while True:
-            s1 = self._sn()
-            if not self._p2():
-                return False
-            c1 = (self._sn() != s1)
+            c1 = self._p2()
             s2 = self._sn()
             if not self._bridge():
                 return False
