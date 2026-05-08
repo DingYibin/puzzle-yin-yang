@@ -71,37 +71,34 @@ class Solver:
                     if uk is not None and (wc == 3 or bc == 3):
                         x, y = cells[uk]
                         nv = self.BLACK if wc == 3 else self.WHITE
-                        changed = True
-                        self._set(x, y, nv)
-                        hit = True
-                        continue
+                        if self.g[x][y] == self.UNKNOWN:
+                            changed = True
+                            self._set(x, y, nv)
+                            hit = True
+                            continue
 
                     # Rule 2: diagonal pair of C + one corner O → last must be C
                     # Case 1: diagonal \ (v0==v3)
                     v0, v1, v2, v3 = vals
                     if v0 != self.UNKNOWN and v0 == v3:
-                        # v1 opposite known, v2 unknown → v2 = v0
-                        if v1 != self.UNKNOWN and v1 != v0 and v2 == self.UNKNOWN:
+                        if v1 != self.UNKNOWN and v1 != v0 and self.g[r+1][c] == self.UNKNOWN:
                             changed = True
                             self._set(r+1, c, v0)
                             hit = True
                             continue
-                        # v2 opposite known, v1 unknown → v1 = v0
-                        if v2 != self.UNKNOWN and v2 != v0 and v1 == self.UNKNOWN:
+                        if v2 != self.UNKNOWN and v2 != v0 and self.g[r][c+1] == self.UNKNOWN:
                             changed = True
                             self._set(r, c+1, v0)
                             hit = True
                             continue
                     # Case 2: diagonal / (v1==v2)
                     if v1 != self.UNKNOWN and v1 == v2:
-                        # v0 opposite known, v3 unknown → v3 = v1
-                        if v0 != self.UNKNOWN and v0 != v1 and v3 == self.UNKNOWN:
+                        if v0 != self.UNKNOWN and v0 != v1 and self.g[r+1][c+1] == self.UNKNOWN:
                             changed = True
                             self._set(r+1, c+1, v1)
                             hit = True
                             continue
-                        # v3 opposite known, v0 unknown → v0 = v1
-                        if v3 != self.UNKNOWN and v3 != v1 and v0 == self.UNKNOWN:
+                        if v3 != self.UNKNOWN and v3 != v1 and self.g[r][c] == self.UNKNOWN:
                             changed = True
                             self._set(r, c, v1)
                             hit = True
@@ -196,13 +193,15 @@ class Solver:
         return True
 
     def _propagate(self, verbose=False):
-        """Apply deduction rules until stable (p2 + surrounded — bridge & perimeter skipped)."""
+        """Apply deduction rules until stable (p2 + surrounded + corner3 + single_unk)."""
         while True:
             c1 = self._p2()
             c2 = self._surrounded()
-            if verbose and (c1 or c2):
+            c3 = self._corner3()
+            c4 = self._single_unk()
+            if verbose and (c1 or c2 or c3 or c4):
                 self.pc()
-            if not c1 and not c2:
+            if not c1 and not c2 and not c3 and not c4:
                 break
         return True
 
@@ -211,7 +210,7 @@ class Solver:
         """
         Rule 4: if all EXISTING orthogonal neighbors of an unknown cell
         are known and the same color, that cell must also be that color.
-        Returns True if any cell was changed, False otherwise.
+        Returns 0 if any cell was changed, 1 if no change, 2 if conflict.
         """
         changed = False
         for r in range(self.N):
@@ -232,12 +231,104 @@ class Solver:
                         elif v != color:
                             all_known = False
                             break
-                if all_known and color is not None:
-                    if self.g[r][c] != color:
-                        self._set(r, c, color)
+                if all_known and color is not None and self.g[r][c] == self.UNKNOWN:
+                    self._set(r, c, color)
+                    changed = True
+        return changed
+
+    # ---- 2x3 / 3x2 corner rule (rule 5) ----
+    def _corner3(self):
+        """
+        Rule 5: in a 2×3 or 3×2 area, if 4 corners are colored with 3 of
+        one color and 1 of the other, the middle cell adjacent to the
+        minority corner must also be the minority color.
+        Returns True if any cell was changed, False otherwise.
+        """
+        changed = False
+        N = self.N
+        g = self.g
+
+        # 2×3 horizontal: (r,c) to (r+1,c+2)
+        for r in range(N - 1):
+            for c in range(N - 2):
+                corners = [(r,c), (r,c+2), (r+1,c), (r+1,c+2)]
+                vals = [g[x][y] for x,y in corners]
+                if any(v == self.UNKNOWN for v in vals):
+                    continue
+                wc = sum(1 for v in vals if v == self.WHITE)
+                bc = sum(1 for v in vals if v == self.BLACK)
+                if wc == 3 and bc == 1:
+                    for (cr, cc), v in zip(corners, vals):
+                        if v == self.BLACK and g[cr][c+1] == self.UNKNOWN:
+                            self._set(cr, c+1, self.BLACK)
+                            changed = True
+                            break
+                elif bc == 3 and wc == 1:
+                    for (cr, cc), v in zip(corners, vals):
+                        if v == self.WHITE and g[cr][c+1] == self.UNKNOWN:
+                            self._set(cr, c+1, self.WHITE)
+                            changed = True
+                            break
+
+        # 3×2 vertical: (r,c) to (r+2,c+1)
+        for r in range(N - 2):
+            for c in range(N - 1):
+                corners = [(r,c), (r+2,c), (r,c+1), (r+2,c+1)]
+                vals = [g[x][y] for x,y in corners]
+                if any(v == self.UNKNOWN for v in vals):
+                    continue
+                wc = sum(1 for v in vals if v == self.WHITE)
+                bc = sum(1 for v in vals if v == self.BLACK)
+                if wc == 3 and bc == 1:
+                    for (cr, cc), v in zip(corners, vals):
+                        if v == self.BLACK and g[r+1][cc] == self.UNKNOWN:
+                            self._set(r+1, cc, self.BLACK)
+                            changed = True
+                            break
+                elif bc == 3 and wc == 1:
+                    for (cr, cc), v in zip(corners, vals):
+                        if v == self.WHITE and g[r+1][cc] == self.UNKNOWN:
+                            self._set(r+1, cc, self.WHITE)
+                            changed = True
+                            break
+
+        return changed
+
+    # ---- single unknown neighbor rule (rule 6) ----
+    def _single_unk(self):
+        """
+        Rule 6: if a colored cell has exactly 1 unknown neighbor and all
+        other neighbors are the opposite color, the unknown neighbor must
+        be the same color as this cell (otherwise this cell is isolated).
+        Returns True if any cell was changed, False otherwise.
+        """
+        changed = False
+        for r in range(self.N):
+            for c in range(self.N):
+                v = self.g[r][c]
+                if v == self.UNKNOWN:
+                    continue
+                opp = self.WHITE if v == self.BLACK else self.BLACK
+                unk_pos = None
+                for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
+                    nr, nc = r+dr, c+dc
+                    if 0 <= nr < self.N and 0 <= nc < self.N:
+                        nv = self.g[nr][nc]
+                        if nv == self.UNKNOWN:
+                            if unk_pos is None:
+                                unk_pos = (nr, nc)
+                            else:
+                                unk_pos = None
+                                break
+                        elif nv != opp:
+                            unk_pos = None
+                            break
+                if unk_pos is not None:
+                    ur, uc = unk_pos
+                    if self.g[ur][uc] == self.UNKNOWN:
+                        self._set(ur, uc, v)
                         changed = True
         return changed
-    def _perimeter(self):
         """
         Rule 3: perimeter cells of same color form contiguous arcs.
         If two cells of color C are on the perimeter with only unknowns
@@ -479,9 +570,7 @@ class Solver:
         for co in order:
             sp = self._sn()
             self._set(r, c, co)
-            if self._propagate():
-                self._surrounded()
-                if self._dfs():
+            if self._propagate() and self._dfs():
                     return True
             self._ba(sp)
         return False
