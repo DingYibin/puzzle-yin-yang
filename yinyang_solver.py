@@ -317,82 +317,56 @@ class Solver:
 
     def _perimeter(self):
         """
-        Rule 3: perimeter cells of same color form contiguous arcs.
-        If two cells of color C are on the perimeter with only unknowns
-        between them (no opposite color), those unknowns must be C,
-        UNLESS forcing them would create an immediate 2×2 violation.
+        Rule 3: on the perimeter, if both colors appear and one color has
+        2+ cells, connect those cells along the perimeter arc that does
+        not pass through the opposite color. Returns True if changed.
         """
+        changed = False
         N = self.N
         if N <= 2:
-            return True
+            return changed
 
-        # Extract perimeter in clockwise order
-        peri = []
-        for c in range(N):
-            peri.append((0, c))
-        for r in range(1, N):
-            peri.append((r, N-1))
-        for c in range(N-2, -1, -1):
-            peri.append((N-1, c))
-        for r in range(N-2, 0, -1):
-            peri.append((r, 0))
-
+        # Perimeter in clockwise order
+        peri = (
+            [(0, c) for c in range(N)] +
+            [(r, N-1) for r in range(1, N)] +
+            [(N-1, c) for c in range(N-2, -1, -1)] +
+            [(r, 0) for r in range(N-2, 0, -1)]
+        )
         P = len(peri)
+        cols = [self.g[r][c] for r, c in peri]
+
+        # Only proceed if both colors appear on perimeter
+        has_w = self.WHITE in cols
+        has_b = self.BLACK in cols
+        if not (has_w and has_b):
+            return changed
 
         for color in (self.WHITE, self.BLACK):
             opp = self.BLACK if color == self.WHITE else self.WHITE
-
-            color_idx = [i for i in range(P) if self.g[peri[i][0]][peri[i][1]] == color]
-
-            if len(color_idx) < 2:
+            idxs = [i for i, v in enumerate(cols) if v == color]
+            if len(idxs) < 2:
                 continue
 
-            for idx in range(len(color_idx)):
-                i = color_idx[idx]
-                j = color_idx[(idx + 1) % len(color_idx)]
-
+            for k in range(len(idxs)):
+                i = idxs[k]
+                j = idxs[(k + 1) % len(idxs)]
                 if i < j:
-                    arc_indices = list(range(i + 1, j))
+                    arc = list(range(i + 1, j))
                 else:
-                    arc_indices = list(range(i + 1, P)) + list(range(0, j))
-
-                if not arc_indices:
+                    arc = list(range(i + 1, P)) + list(range(0, j))
+                if not arc:
                     continue
-
-                has_opp = False
-                for a in arc_indices:
-                    ar, ac = peri[a]
-                    if self.g[ar][ac] == opp:
-                        has_opp = True
-                        break
-
-                if has_opp:
+                # Skip if opposite color blocks this arc
+                if any(cols[a] == opp for a in arc):
                     continue
+                # Fill unknowns on this arc
+                for a in arc:
+                    if cols[a] == self.UNKNOWN:
+                        self._set(peri[a][0], peri[a][1], color)
+                        changed = True
 
-                # Force unknowns on this arc, but check 2×2 safety
-                for a in arc_indices:
-                    ar, ac = peri[a]
-                    if self.g[ar][ac] == self.UNKNOWN:
-                        if self.fixed[ar][ac]:
-                            return False
-                        # Check: would setting (ar, ac) to 'color' create a 2×2 all-same?
-                        safe = True
-                        for dr in (-1, 0):
-                            for dc in (-1, 0):
-                                cr, cc = ar + dr, ac + dc
-                                if 0 <= cr < N-1 and 0 <= cc < N-1:
-                                    others = [(x,y) for x,y in
-                                              [(cr,cc),(cr,cc+1),(cr+1,cc),(cr+1,cc+1)]
-                                              if (x,y) != (ar,ac)]
-                                    if all(self.g[x][y] == color for x,y in others):
-                                        safe = False
-                                        break
-                            if not safe:
-                                break
-                        if safe:
-                            self._set(ar, ac, color)
-
-        return True
+        return changed
 
     # ---- connectivity check (union-find) ----
     def _ok(self):
