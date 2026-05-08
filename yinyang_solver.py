@@ -199,7 +199,7 @@ class Solver:
         return True
 
     def _propagate(self):
-        """Apply all propagation until stable"""
+        """Apply deduction rules until stable (p2 + bridge + perimeter)."""
         while True:
             s1 = self._sn()
             if not self._p2():
@@ -217,7 +217,37 @@ class Solver:
                 break
         return True
 
-    # ---- perimeter rule (rule 3) ----
+    # ---- surrounded rule (rule 4) ----
+    def _surrounded(self):
+        """
+        Rule 4: if all EXISTING orthogonal neighbors of an unknown cell
+        are known and the same color, that cell must also be that color.
+        (For interior cells this means all 4 neighbors; for edges, 2-3.)
+        """
+        for r in range(self.N):
+            for c in range(self.N):
+                if self.g[r][c] != self.UNKNOWN:
+                    continue
+                color = None
+                all_known = True
+                for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
+                    nr, nc = r+dr, c+dc
+                    if 0 <= nr < self.N and 0 <= nc < self.N:
+                        v = self.g[nr][nc]
+                        if v == self.UNKNOWN:
+                            all_known = False
+                            break
+                        if color is None:
+                            color = v
+                        elif v != color:
+                            all_known = False
+                            break
+                if all_known and color is not None:
+                    if self.fixed[r][c] and self.g[r][c] != color:
+                        return False
+                    if self.g[r][c] != color:
+                        self._set(r, c, color)
+        return True
     def _perimeter(self):
         """
         Rule 3: perimeter cells of same color form contiguous arcs.
@@ -429,8 +459,10 @@ class Solver:
         for co in order:
             sp = self._sn()
             self._set(r, c, co)
-            if self._propagate() and self._dfs():
-                return True
+            if self._propagate():
+                self._surrounded()
+                if self._dfs():
+                    return True
             self._ba(sp)
         return False
 
