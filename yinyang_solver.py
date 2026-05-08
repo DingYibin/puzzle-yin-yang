@@ -195,19 +195,14 @@ class Solver:
                 return False
         return True
 
-    def _propagate(self):
-        """Apply deduction rules until stable (p2 + bridge + perimeter)."""
+    def _propagate(self, verbose=False):
+        """Apply deduction rules until stable (p2 + surrounded — bridge & perimeter skipped)."""
         while True:
             c1 = self._p2()
-            s2 = self._sn()
-            if not self._bridge():
-                return False
-            c2 = (self._sn() != s2)
-            s3 = self._sn()
-            if not self._perimeter():
-                return False
-            c3 = (self._sn() != s3)
-            if not c1 and not c2 and not c3:
+            c2 = self._surrounded()
+            if verbose and (c1 or c2):
+                self.pc()
+            if not c1 and not c2:
                 break
         return True
 
@@ -216,8 +211,9 @@ class Solver:
         """
         Rule 4: if all EXISTING orthogonal neighbors of an unknown cell
         are known and the same color, that cell must also be that color.
-        (For interior cells this means all 4 neighbors; for edges, 2-3.)
+        Returns True if any cell was changed, False otherwise.
         """
+        changed = False
         for r in range(self.N):
             for c in range(self.N):
                 if self.g[r][c] != self.UNKNOWN:
@@ -237,11 +233,10 @@ class Solver:
                             all_known = False
                             break
                 if all_known and color is not None:
-                    if self.fixed[r][c] and self.g[r][c] != color:
-                        return False
                     if self.g[r][c] != color:
                         self._set(r, c, color)
-        return True
+                        changed = True
+        return changed
     def _perimeter(self):
         """
         Rule 3: perimeter cells of same color form contiguous arcs.
@@ -446,12 +441,8 @@ class Solver:
         self.t0 = time.time()
         self.nodes = 0
         self._st = []
-        if not self._propagate():
+        if not self._propagate(verbose=self.verbose):
             return False
-        if not self._surrounded():
-            return False
-        if self.verbose:
-            self.pc()
         if self._done():
             return self._ok()
         return self._dfs()
