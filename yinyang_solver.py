@@ -192,14 +192,15 @@ class Solver:
         return True
 
     def _propagate(self, verbose=False):
-        """Apply deduction rules until stable (p2 + surrounded + corner3)."""
+        """Apply deduction rules until stable (p2 + surrounded + corner3 + perimeter)."""
         while True:
             c1 = self._p2()
             c2 = self._surrounded()
             c3 = self._corner3()
-            if verbose and (c1 or c2 or c3):
+            c4 = self._perimeter()
+            if verbose and (c1 or c2 or c3 or c4):
                 self.pc()
-            if not c1 and not c2 and not c3:
+            if not c1 and not c2 and not c3 and not c4:
                 break
         return True
 
@@ -334,17 +335,18 @@ class Solver:
             [(r, 0) for r in range(N-2, 0, -1)]
         )
         P = len(peri)
-        cols = [self.g[r][c] for r, c in peri]
+        # Keep only colored cells with their perimeter indices
+        colored = [(i, self.g[r][c]) for i, (r, c) in enumerate(peri)
+                   if self.g[r][c] != self.UNKNOWN]
 
-        # Only proceed if both colors appear on perimeter
-        has_w = self.WHITE in cols
-        has_b = self.BLACK in cols
-        if not (has_w and has_b):
+        # Need both colors present
+        has = {v for _, v in colored}
+        if self.WHITE not in has or self.BLACK not in has:
             return changed
 
         for color in (self.WHITE, self.BLACK):
             opp = self.BLACK if color == self.WHITE else self.WHITE
-            idxs = [i for i, v in enumerate(cols) if v == color]
+            idxs = [i for i, v in colored if v == color]
             if len(idxs) < 2:
                 continue
 
@@ -358,11 +360,11 @@ class Solver:
                 if not arc:
                     continue
                 # Skip if opposite color blocks this arc
-                if any(cols[a] == opp for a in arc):
+                if any(self.g[peri[a][0]][peri[a][1]] == opp for a in arc):
                     continue
                 # Fill unknowns on this arc
                 for a in arc:
-                    if cols[a] == self.UNKNOWN:
+                    if self.g[peri[a][0]][peri[a][1]] == self.UNKNOWN:
                         self._set(peri[a][0], peri[a][1], color)
                         changed = True
 
