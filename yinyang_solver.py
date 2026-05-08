@@ -422,7 +422,17 @@ class Solver:
                 else:
                     black_roots.add(root)
 
-        return len(white_roots) <= 1 and len(black_roots) <= 1
+        if len(white_roots) > 1 or len(black_roots) > 1:
+            return False
+
+        # Also check no 2×2 block is all same color
+        for r in range(N - 1):
+            for c in range(N - 1):
+                v = self.g[r][c]
+                if v != self.UNKNOWN and all(self.g[r + dr][c + dc] == v
+                                              for dr in (0, 1) for dc in (0, 1)):
+                    return False
+        return True
 
     def _done(self):
         for r in range(self.N):
