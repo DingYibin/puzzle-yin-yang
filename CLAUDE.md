@@ -35,8 +35,10 @@ No test framework or tests configured yet.
 
 ### Propagation Rules
 
-- **2×2 rule** (`_p2`): If any 2×2 block has 3 cells of the same color, the 4th is forced to the opposite color. Applied iteratively to convergence.
-- **Bridge rule** (`_bridge`): If a color has 2+ connected components, and a component has exactly 1 unknown boundary cell, that cell is forced to the component's color. If a component has 0 boundary cells → conflict (impossible to connect). Lower bound: total boundary cells across all components of a color must be ≥ k−1 (where k = number of components).
+- **Rule 1 — 2×2 same-color** (`_p2`): If any 2×2 block has 3 cells of the same color, the 4th is forced to the opposite color.
+- **Rule 2 — 2×2 diagonal** (`_p2`): If a 2×2 block has a diagonal pair of color C and one remaining cell is the opposite color O, the last cell must be C.
+- **Rule 3 — Perimeter contiguity** (`_perimeter`): On the outer boundary, same-color cells form contiguous arcs. If two cells of color C are on the perimeter with no opposite color between them, all unknowns on that arc are forced to C (unless it creates a 2×2 violation). Prevents C...O...C patterns on the perimeter.
+- **Bridge rule** (`_bridge`): If a color has 2+ connected components and a component has exactly 1 unknown boundary cell, that cell is forced to the component's color. 0 boundary → conflict. Total boundary < k−1 → impossible to connect. Includes fast early-exit when both colors already form 1 component each.
 - **Connectivity check** (`_conn`): Full BFS per color, only at leaf nodes (when all cells assigned).
 
 ### Task String RLE Format
@@ -63,12 +65,14 @@ CLI `--size` uses human keys (`6`, `10`, `15`, `20`, `25`) with optional difficu
 
 ### Performance Expectations
 
-| Size | Typical | Worst observed |
-|------|---------|----------------|
-| 6×6 | < 0.03s | ~0.03s (hard) |
-| 10×10 normal/hard | < 2s | ~2s |
-| 10×10 easy | may time out (many scattered components, bridge rule doesn't fire) | — |
-| 15×15+ | depends on component count | — |
+| Size | Typical | Notes |
+|------|---------|-------|
+| 6×6 | < 1ms | Pure deduction, 0 DFS nodes |
+| 10×10 | < 5ms | 0–11 DFS nodes |
+| 15×15 | < 10ms | 0–5 DFS nodes |
+| 20×20 normal | < 25ms | 0–12 DFS nodes |
+| 20×20 hard | may time out | Many scattered components, bridge rule can't fire |
+| 25×25 | < 1.5s | 0–400 DFS nodes |
 
 Puzzles where both colors have many small components (10+ each) are the hardest because each component has ≥2 boundary cells, preventing the bridge rule from firing. The DFS then has too many degrees of freedom.
 

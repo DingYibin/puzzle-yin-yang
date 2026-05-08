@@ -42,27 +42,74 @@ class Solver:
             r, c, v = self._st.pop()
             self.g[r][c] = v
 
-    # ---- 2x2 propagation ----
+    # ---- 2x2 propagation (rules 1 & 2) ----
     def _p2(self):
+        """
+        Rule 1: 2×2 block has 3 same → 4th must be opposite.
+        Rule 2: 2×2 block has diagonal pair of C and one corner of O → last must be C.
+        """
         while True:
             hit = False
             for r in range(self.N-1):
                 for c in range(self.N-1):
+                    cells = [(r,c),(r,c+1),(r+1,c),(r+1,c+1)]
+                    vals = [self.g[x][y] for x,y in cells]
+
+                    # Rule 1: 3 same → 4th opposite
                     uk = None
                     wc = bc = 0
-                    for rr, cc in ((r,c),(r,c+1),(r+1,c),(r+1,c+1)):
-                        v = self.g[rr][cc]
-                        if v == self.UNKNOWN: uk = (rr, cc)
-                        elif v == self.WHITE: wc += 1
-                        else: bc += 1
-                    if uk and (wc == 3 or bc == 3):
-                        rr, cc = uk
+                    for i, v in enumerate(vals):
+                        if v == self.UNKNOWN:
+                            uk = i
+                        elif v == self.WHITE:
+                            wc += 1
+                        elif v == self.BLACK:
+                            bc += 1
+                    if uk is not None and (wc == 3 or bc == 3):
+                        x, y = cells[uk]
                         nv = self.BLACK if wc == 3 else self.WHITE
-                        if self.fixed[rr][cc] and self.g[rr][cc] != nv:
+                        if self.fixed[x][y] and self.g[x][y] != nv:
                             return False
-                        if self.g[rr][cc] != nv:
-                            self._set(rr, cc, nv)
+                        if self.g[x][y] != nv:
+                            self._set(x, y, nv)
                             hit = True
+                        continue
+
+                    # Rule 2: diagonal pair of C + one corner O → last must be C
+                    # Pattern 1: C at (r,c) and (r+1,c+1), O at (r,c+1) → (r+1,c)=C
+                    v0, v1, v2, v3 = vals
+                    if v0 != self.UNKNOWN and v0 == v3 and v0 != v1 and v1 != self.UNKNOWN:
+                        if v2 == self.UNKNOWN:
+                            if self.fixed[r+1][c] and self.g[r+1][c] != v0:
+                                return False
+                            self._set(r+1, c, v0)
+                            hit = True
+                            continue
+                    # Pattern 2: C at (r,c+1) and (r+1,c), O at (r,c) → (r+1,c+1)=C
+                    if v1 != self.UNKNOWN and v1 == v2 and v1 != v0 and v0 != self.UNKNOWN:
+                        if v3 == self.UNKNOWN:
+                            if self.fixed[r+1][c+1] and self.g[r+1][c+1] != v1:
+                                return False
+                            self._set(r+1, c+1, v1)
+                            hit = True
+                            continue
+                    # Pattern 3: C at (r,c) and (r+1,c+1), O at (r+1,c) → (r,c+1)=C
+                    if v0 != self.UNKNOWN and v0 == v3 and v0 != v2 and v2 != self.UNKNOWN:
+                        if v1 == self.UNKNOWN:
+                            if self.fixed[r][c+1] and self.g[r][c+1] != v0:
+                                return False
+                            self._set(r, c+1, v0)
+                            hit = True
+                            continue
+                    # Pattern 4: C at (r,c+1) and (r+1,c), O at (r+1,c+1) → (r,c)=C
+                    if v1 != self.UNKNOWN and v1 == v2 and v1 != v3 and v3 != self.UNKNOWN:
+                        if v0 == self.UNKNOWN:
+                            if self.fixed[r][c] and self.g[r][c] != v1:
+                                return False
+                            self._set(r, c, v1)
+                            hit = True
+                            continue
+
             if not hit:
                 break
         return True
@@ -97,7 +144,39 @@ class Solver:
         return res
 
     def _bridge(self):
-        """Bridge rule: component with 1 boundary → forced. Also check 0 boundary → conflict."""
+        """
+        Bridge rule: component with 1 boundary → forced.
+        Also check 0 boundary → conflict, and total_boundary < k-1 → impossible.
+        """
+        # Quick check: count components per color (stop at 2)
+        def count_comps_fast(color, limit=2):
+            cnt = 0
+            visited = [[0]*self.N for _ in range(self.N)]
+            # Use a different marker technique or just a simple queue
+            for r in range(self.N):
+                for c in range(self.N):
+                    if self.g[r][c] == color and not visited[r][c]:
+                        cnt += 1
+                        if cnt >= limit:
+                            return cnt
+                        # BFS to mark this component
+                        q = deque([(r, c)])
+                        visited[r][c] = True
+                        while q:
+                            cr, cc = q.popleft()
+                            for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
+                                nr, nc = cr+dr, cc+dc
+                                if 0 <= nr < self.N and 0 <= nc < self.N and not visited[nr][nc] and self.g[nr][nc] == color:
+                                    visited[nr][nc] = True
+                                    q.append((nr, nc))
+            return cnt
+
+        w_cnt = count_comps_fast(self.WHITE)
+        b_cnt = count_comps_fast(self.BLACK)
+
+        if w_cnt <= 1 and b_cnt <= 1:
+            return True
+
         for color in (self.WHITE, self.BLACK):
             comps = self._find_comps(color)
             k = len(comps)
@@ -130,8 +209,92 @@ class Solver:
             if not self._bridge():
                 return False
             c2 = (self._sn() != s2)
-            if not c1 and not c2:
+            s3 = self._sn()
+            if not self._perimeter():
+                return False
+            c3 = (self._sn() != s3)
+            if not c1 and not c2 and not c3:
                 break
+        return True
+
+    # ---- perimeter rule (rule 3) ----
+    def _perimeter(self):
+        """
+        Rule 3: perimeter cells of same color form contiguous arcs.
+        If two cells of color C are on the perimeter with only unknowns
+        between them (no opposite color), those unknowns must be C,
+        UNLESS forcing them would create an immediate 2×2 violation.
+        """
+        N = self.N
+        if N <= 2:
+            return True
+
+        # Extract perimeter in clockwise order
+        peri = []
+        for c in range(N):
+            peri.append((0, c))
+        for r in range(1, N):
+            peri.append((r, N-1))
+        for c in range(N-2, -1, -1):
+            peri.append((N-1, c))
+        for r in range(N-2, 0, -1):
+            peri.append((r, 0))
+
+        P = len(peri)
+
+        for color in (self.WHITE, self.BLACK):
+            opp = self.BLACK if color == self.WHITE else self.WHITE
+
+            color_idx = [i for i in range(P) if self.g[peri[i][0]][peri[i][1]] == color]
+
+            if len(color_idx) < 2:
+                continue
+
+            for idx in range(len(color_idx)):
+                i = color_idx[idx]
+                j = color_idx[(idx + 1) % len(color_idx)]
+
+                if i < j:
+                    arc_indices = list(range(i + 1, j))
+                else:
+                    arc_indices = list(range(i + 1, P)) + list(range(0, j))
+
+                if not arc_indices:
+                    continue
+
+                has_opp = False
+                for a in arc_indices:
+                    ar, ac = peri[a]
+                    if self.g[ar][ac] == opp:
+                        has_opp = True
+                        break
+
+                if has_opp:
+                    continue
+
+                # Force unknowns on this arc, but check 2×2 safety
+                for a in arc_indices:
+                    ar, ac = peri[a]
+                    if self.g[ar][ac] == self.UNKNOWN:
+                        if self.fixed[ar][ac]:
+                            return False
+                        # Check: would setting (ar, ac) to 'color' create a 2×2 all-same?
+                        safe = True
+                        for dr in (-1, 0):
+                            for dc in (-1, 0):
+                                cr, cc = ar + dr, ac + dc
+                                if 0 <= cr < N-1 and 0 <= cc < N-1:
+                                    others = [(x,y) for x,y in
+                                              [(cr,cc),(cr,cc+1),(cr+1,cc),(cr+1,cc+1)]
+                                              if (x,y) != (ar,ac)]
+                                    if all(self.g[x][y] == color for x,y in others):
+                                        safe = False
+                                        break
+                            if not safe:
+                                break
+                        if safe:
+                            self._set(ar, ac, color)
+
         return True
 
     # ---- connectivity check (full grid) ----
@@ -166,23 +329,41 @@ class Solver:
 
     # ---- cell selection ----
     def _pick(self):
-        """Pick from smallest multi-component boundary; else most constrained."""
+        """
+        Pick from smallest multi-component boundary; prefer cells that
+        are adjacent to multiple different components (bridge cells).
+        """
+        # Precompute all components for both colors
+        w_comps = self._find_comps(self.WHITE)
+        b_comps = self._find_comps(self.BLACK)
+
         best, best_sc = None, -1
-        for color in (self.WHITE, self.BLACK):
-            comps = self._find_comps(color)
-            if len(comps) >= 2:
-                smallest = min(comps, key=lambda c: c[0])
-                for br, bc in smallest[1]:
-                    sc = sum(1 for dr, dc in ((-1,0),(1,0),(0,-1),(0,1))
-                            if 0 <= br+dr < self.N and 0 <= bc+dc < self.N and self.g[br+dr][bc+dc])
-                    sc = sc * 1000
-                    if sc > best_sc:
-                        best_sc = sc
-                        best = (br, bc)
+
+        # Phase 1: multi-component colors — bridge score
+        for _, comps in ((self.WHITE, w_comps), (self.BLACK, b_comps)):
+            if len(comps) < 2:
+                continue
+            # Map unknown cells to component sets they border
+            cell_to_comps = {}
+            for ci, (_, boundary) in enumerate(comps):
+                for br, bc in boundary:
+                    cell_to_comps.setdefault((br, bc), set()).add(ci)
+
+            for (br, bc), comp_set in cell_to_comps.items():
+                n_comps = len(comp_set)
+                sc = n_comps * 5000
+                for ci in comp_set:
+                    sc += 2000 - min(len(comps[ci][1]), 10) * 100
+                if sc > best_sc:
+                    best_sc = sc
+                    best = (br, bc)
+
         if best:
             return best
-        for color in (self.WHITE, self.BLACK):
-            for _, boundary in self._find_comps(color):
+
+        # Phase 2: single-component colors — most constrained boundary
+        for comps in (w_comps, b_comps):
+            for _, boundary in comps:
                 for br, bc in boundary:
                     sc = sum(1 for dr, dc in ((-1,0),(1,0),(0,-1),(0,1))
                             if 0 <= br+dr < self.N and 0 <= bc+dc < self.N and self.g[br+dr][bc+dc])
@@ -190,8 +371,11 @@ class Solver:
                     if sc > best_sc:
                         best_sc = sc
                         best = (br, bc)
+
         if best:
             return best
+
+        # Phase 3: no components at all — most constrained unknown
         for r in range(self.N):
             for c in range(self.N):
                 if self.g[r][c] == self.UNKNOWN:
