@@ -730,7 +730,7 @@ class Solver:
         if not self._propagate(verbose=self.verbose):
             return False
         if self._done():
-            return self._ok()
+            return True
         # Try-both: before DFS, try each unknown with both colors.
         # If one color causes conflict, the other is forced.
         _try_round = 0
@@ -745,7 +745,7 @@ class Solver:
             if not self._propagate():
                 return False
             if self._done():
-                return self._ok()
+                return True
         return self._dfs()
 
     def _dfs(self):
