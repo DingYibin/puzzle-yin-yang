@@ -494,6 +494,52 @@ class Solver:
         return changed
 
     # ---- 2x3 / 3x2 corner rule (rule 5) ----
+    def _corner3_h(self, r, c):
+        """Horizontal 2×3 check: (r,c) to (r+1,c+2) → middle at (cr, c+1)"""
+        N, g = self.N, self.g
+        if c + 2 >= N:
+            return False
+        corners = [(r,c), (r,c+2), (r+1,c), (r+1,c+2)]
+        vals = [g[x][y] for x,y in corners]
+        if any(v == self.UNKNOWN for v in vals):
+            return False
+        wc = sum(1 for v in vals if v == self.WHITE)
+        bc = sum(1 for v in vals if v == self.BLACK)
+        if wc == 3 and bc == 1:
+            for (cr, _), v in zip(corners, vals):
+                if v == self.BLACK and g[cr][c+1] == self.UNKNOWN:
+                    self._set(cr, c+1, self.BLACK)
+                    return True
+        elif bc == 3 and wc == 1:
+            for (cr, _), v in zip(corners, vals):
+                if v == self.WHITE and g[cr][c+1] == self.UNKNOWN:
+                    self._set(cr, c+1, self.WHITE)
+                    return True
+        return False
+
+    def _corner3_v(self, r, c):
+        """Vertical 3×2 check: (r,c) to (r+2,c+1) → middle at (r+1, cc)"""
+        N, g = self.N, self.g
+        if r + 2 >= N:
+            return False
+        corners = [(r,c), (r+2,c), (r,c+1), (r+2,c+1)]
+        vals = [g[x][y] for x,y in corners]
+        if any(v == self.UNKNOWN for v in vals):
+            return False
+        wc = sum(1 for v in vals if v == self.WHITE)
+        bc = sum(1 for v in vals if v == self.BLACK)
+        if wc == 3 and bc == 1:
+            for (_, cc), v in zip(corners, vals):
+                if v == self.BLACK and g[r+1][cc] == self.UNKNOWN:
+                    self._set(r+1, cc, self.BLACK)
+                    return True
+        elif bc == 3 and wc == 1:
+            for (_, cc), v in zip(corners, vals):
+                if v == self.WHITE and g[r+1][cc] == self.UNKNOWN:
+                    self._set(r+1, cc, self.WHITE)
+                    return True
+        return False
+
     def _corner3(self):
         """
         Rule 5: in a 2×3 or 3×2 area, if 4 corners are colored with 3 of
@@ -503,52 +549,12 @@ class Solver:
         """
         changed = False
         N = self.N
-        g = self.g
-
-        # 2×3 horizontal: (r,c) to (r+1,c+2)
         for r in range(N - 1):
-            for c in range(N - 2):
-                corners = [(r,c), (r,c+2), (r+1,c), (r+1,c+2)]
-                vals = [g[x][y] for x,y in corners]
-                if any(v == self.UNKNOWN for v in vals):
-                    continue
-                wc = sum(1 for v in vals if v == self.WHITE)
-                bc = sum(1 for v in vals if v == self.BLACK)
-                if wc == 3 and bc == 1:
-                    for (cr, cc), v in zip(corners, vals):
-                        if v == self.BLACK and g[cr][c+1] == self.UNKNOWN:
-                            self._set(cr, c+1, self.BLACK)
-                            changed = True
-                            break
-                elif bc == 3 and wc == 1:
-                    for (cr, cc), v in zip(corners, vals):
-                        if v == self.WHITE and g[cr][c+1] == self.UNKNOWN:
-                            self._set(cr, c+1, self.WHITE)
-                            changed = True
-                            break
-
-        # 3×2 vertical: (r,c) to (r+2,c+1)
-        for r in range(N - 2):
             for c in range(N - 1):
-                corners = [(r,c), (r+2,c), (r,c+1), (r+2,c+1)]
-                vals = [g[x][y] for x,y in corners]
-                if any(v == self.UNKNOWN for v in vals):
-                    continue
-                wc = sum(1 for v in vals if v == self.WHITE)
-                bc = sum(1 for v in vals if v == self.BLACK)
-                if wc == 3 and bc == 1:
-                    for (cr, cc), v in zip(corners, vals):
-                        if v == self.BLACK and g[r+1][cc] == self.UNKNOWN:
-                            self._set(r+1, cc, self.BLACK)
-                            changed = True
-                            break
-                elif bc == 3 and wc == 1:
-                    for (cr, cc), v in zip(corners, vals):
-                        if v == self.WHITE and g[r+1][cc] == self.UNKNOWN:
-                            self._set(r+1, cc, self.WHITE)
-                            changed = True
-                            break
-
+                if self._corner3_h(r, c):
+                    changed = True
+                if self._corner3_v(r, c):
+                    changed = True
         return changed
 
     def _perimeter(self):
