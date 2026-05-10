@@ -847,6 +847,9 @@ class Solver:
             return True
         # Try-both: before DFS, try each unknown with both colors.
         # If one color causes conflict, the other is forced.
+        if self.verbose:
+            print(f"\n── Try-Both Round 0 ──")
+            self.pc()
         _try_round = 0
         while True:
             _try_round += 1
