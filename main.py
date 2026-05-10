@@ -52,12 +52,12 @@ SIZE_MAP = {
 }
 
 
-def fetch_puzzle(url: str) -> tuple[str | None, int, int, str | None]:
+def fetch_puzzle(url: str) -> tuple:
     """
     从网站获取谜题数据
 
     Returns:
-        (task_str, width, height, puzzle_id) 或 (None, 0, 0, None)
+        (task_str, width, height, puzzle_id, selected_date)
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -80,16 +80,21 @@ def fetch_puzzle(url: str) -> tuple[str | None, int, int, str | None]:
         id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
         if id_m:
             pid = id_m.group(1)
-        else:
+
+        selected_date = None
+        date_m = re.search(r'<option\s+value="([^"]*)"[^>]*selected="selected"', html)
+        if date_m:
+            selected_date = date_m.group(1).strip()
+        if not selected_date:
             date_m = re.search(r'<option[^>]+selected="selected"[^>]*>\s*([A-Za-z]+\s+\d+,\s*\d+)\s*</option>', html)
             if date_m:
-                pid = date_m.group(1).strip()
+                selected_date = date_m.group(1).strip()
 
-        return task, width, height, pid
+        return task, width, height, pid, selected_date
 
     except Exception as e:
         print(f"获取谜题失败: {e}")
-        return None, 0, 0, None
+        return None, 0, 0, None, None
 
 
 def fetch_by_id(size_param: str, puzzle_id: int) -> tuple[str | None, int, int, str | None]:
@@ -129,17 +134,17 @@ def fetch_by_id(size_param: str, puzzle_id: int) -> tuple[str | None, int, int, 
         return None, 0, 0, None
 
 
-def get_puzzle(size_key: str = "6") -> tuple[list[list[int]] | None, int, str | None]:
-    """获取谜题"""
+def get_puzzle(size_key: str = "6") -> tuple:
+    """获取谜题, 返回 (grid, N, pid, selected_date, size_key)"""
     size_param = SIZE_MAP.get(size_key, '1')
     url = f"https://cn.puzzle-yin-yang.com/?size={size_param}"
-    task, w, h, pid = fetch_puzzle(url)
+    task, w, h, pid, sel_date = fetch_puzzle(url)
     if task and w > 0 and h > 0:
         grid = decode(task, w)
         print(f"获取到 {w}x{h} 谜题 (ID: {pid or '?'})")
-        return grid, w, pid
+        return grid, w, pid, sel_date, size_key
     print("获取谜题失败")
-    return None, 0, None
+    return None, 0, None, None, None
 
 
 def print_puzzle(grid):
@@ -150,17 +155,17 @@ def print_puzzle(grid):
     s.pc()
 
 
-def save_puzzle(grid):
+def save_puzzle(grid, **extra):
     """保存谜题到 puzzles/<timestamp>.json"""
     task = encode(grid)
     w = len(grid)
     h = len(grid[0]) if grid else w
-    data = {"task": task, "puzzleWidth": w, "puzzleHeight": h}
+    data = {"task": task, "puzzleWidth": w, "puzzleHeight": h, **extra}
     filename = "puzzle-yin-yang_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".json"
     os.makedirs("puzzles", exist_ok=True)
     filepath = os.path.join("puzzles", filename)
     with open(filepath, "w") as f:
-        json.dump(data, f, ensure_ascii=False)
+        json.dump(data, f, ensure_ascii=False, indent=2)
     print(f"谜题已保存到 {filepath}")
     return filepath
 
@@ -220,6 +225,7 @@ def main():
     grid = None
     N = 0
     loaded_from_file = False
+    puzzle_meta = {}
 
     if load_path:
         grid = load_puzzle(load_path)
@@ -227,13 +233,16 @@ def main():
         loaded_from_file = True
     elif use_daily:
         print("获取每日谜题...")
-        grid, N, pid = get_puzzle('daily')
+        grid, N, pid, sel_date, sk = get_puzzle('daily')
+        puzzle_meta = {"puzzleSize": sk, "puzzleId": pid, "puzzleDate": sel_date}
     elif use_weekly:
         print("获取每周谜题...")
-        grid, N, pid = get_puzzle('weekly')
+        grid, N, pid, sel_date, sk = get_puzzle('weekly')
+        puzzle_meta = {"puzzleSize": sk, "puzzleId": pid, "puzzleDate": sel_date}
     elif use_monthly:
         print("获取每月谜题...")
-        grid, N, pid = get_puzzle('monthly')
+        grid, N, pid, sel_date, sk = get_puzzle('monthly')
+        puzzle_meta = {"puzzleSize": sk, "puzzleId": pid, "puzzleDate": sel_date}
     elif use_fetch or puzzle_id is not None:
         if puzzle_id is not None:
             size_param = SIZE_MAP.get(size, '1')
@@ -259,13 +268,15 @@ def main():
                     h = int(h_m.group(1)) if h_m else w
                     grid = decode(task, w)
                     N = w
+                    puzzle_meta = {"puzzleSize": size, "puzzleId": str(puzzle_id)}
                     print(f"获取到 {w}x{h} 谜题 (ID: {puzzle_id})")
                 else:
                     print("未找到谜题数据")
             except Exception as e:
                 print(f"获取失败: {e}")
         else:
-            grid, N, pid = get_puzzle(size)
+            grid, N, pid, sel_date, sk = get_puzzle(size)
+            puzzle_meta = {"puzzleSize": sk, "puzzleId": pid, "puzzleDate": sel_date}
     else:
         # Example puzzle (6x6)
         print("使用示例谜题 (6x6)")
@@ -287,6 +298,7 @@ def main():
     # Solve
     solver = Solver(time_limit=time_limit, verbose=verbose)
     solver.load(grid)
+    solver._puzzle_meta = puzzle_meta
     print(f"\n求解 {solver.N}x{solver.N} Yin-Yang 谜题...")
     solver.pc()
 
@@ -298,10 +310,10 @@ def main():
         solver.ps()
     else:
         print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {elapsed:.3f}s)")
-        save_puzzle(grid)
+        save_puzzle(grid, **puzzle_meta)
 
     if use_save and ok:
-        save_puzzle(grid)
+        save_puzzle(grid, **puzzle_meta)
 
 
 if __name__ == "__main__":

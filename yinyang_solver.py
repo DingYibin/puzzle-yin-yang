@@ -947,12 +947,14 @@ class Solver:
         w = len(grid)
         h = len(grid[0]) if grid else w
         data = {"task": task, "puzzleWidth": w, "puzzleHeight": h}
+        if hasattr(self, '_puzzle_meta'):
+            data.update(self._puzzle_meta)
         tag_suffix = f"_{tag}" if tag else ""
         filename = f"puzzle-yin-yang{tag_suffix}_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".json"
         os.makedirs("puzzles", exist_ok=True)
         filepath = os.path.join("puzzles", filename)
         with open(filepath, "w") as f:
-            json.dump(data, f, ensure_ascii=False)
+            json.dump(data, f, ensure_ascii=False, indent=2)
         if self.verbose:
             print(f"谜题已保存到 {filepath}")
 
