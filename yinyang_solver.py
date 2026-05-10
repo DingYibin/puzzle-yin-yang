@@ -19,6 +19,8 @@ class Solver:
         self.nodes = 0
         self.t0 = 0
         self._st = []     # undo stack
+        self._timing = {}
+        self._prop_iterations = 0
 
     def load(self, grid):
         self.N = len(grid)
@@ -411,13 +413,24 @@ class Solver:
     def _propagate(self, verbose=False):
         """Apply deduction rules until stable (p2 + surrounded + corner3 + perimeter + conn_expand)."""
         while True:
+            self._prop_iterations += 1
+            t0 = time.time()
             c1 = self._p2()
+            self._timing['_p2'] = self._timing.get('_p2', 0) + time.time() - t0
             if c1 is None:
                 return False
+            t0 = time.time()
             c2 = self._surrounded()
+            self._timing['_surrounded'] = self._timing.get('_surrounded', 0) + time.time() - t0
+            t0 = time.time()
             c3 = self._corner3()
+            self._timing['_corner3'] = self._timing.get('_corner3', 0) + time.time() - t0
+            t0 = time.time()
             c4 = self._perimeter()
+            self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
+            t0 = time.time()
             c5 = self._conn_expand()
+            self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
             if c5 is None:
                 return False
             if verbose and (c1 or c2 or c3 or c4 or c5):
@@ -727,6 +740,8 @@ class Solver:
         self.t0 = time.time()
         self.nodes = 0
         self._st = []
+        self._timing = {}
+        self._prop_iterations = 0
         if not self._propagate(verbose=self.verbose):
             return False
         if self._done():
@@ -812,6 +827,12 @@ class Solver:
         ok = self._ok()
         print(f"验证: {'✓' if ok else '✗'}")
         print(f"时间={time.time()-self.t0:.3f}s 节点={self.nodes}")
+        if self.verbose and self._timing:
+            print(f"  propagate 迭代: {self._prop_iterations}")
+            print(f"  规则耗时:")
+            for rule in ['_p2', '_surrounded', '_corner3', '_perimeter', '_conn_expand']:
+                t = self._timing.get(rule, 0)
+                print(f"    {rule:20s} {t*1000:9.3f} ms")
         print("=" * 50)
 
 
