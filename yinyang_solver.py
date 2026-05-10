@@ -840,6 +840,7 @@ class Solver:
         self._p2()
         self._corner3()
         self._surrounded()
+        self._conn_expand()
         if self._done():
             return True
         if not self._propagate(verbose=self.verbose):
