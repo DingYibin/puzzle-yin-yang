@@ -215,14 +215,14 @@ class Solver:
                     return False
 
         # ---- bfs_comp checks ----
-        opp_v = self.BLACK if v == self.WHITE else self.WHITE
-        if not self._bfs_comp(r, c):
-            return False
-        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < self.N and 0 <= nc < self.N and self.g[nr][nc] == opp_v:
-                if not self._bfs_comp(nr, nc):
-                    return False
+        # opp_v = self.BLACK if v == self.WHITE else self.WHITE
+        # if not self._bfs_comp(r, c):
+        #     return False
+        # for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        #     nr, nc = r + dr, c + dc
+        #     if 0 <= nr < self.N and 0 <= nc < self.N and self.g[nr][nc] == opp_v:
+        #         if not self._bfs_comp(nr, nc):
+        #             return False
 
         return True
 
@@ -550,9 +550,17 @@ class Solver:
         return changed
 
     def _propagate(self):
-        """Apply perimeter rule once. Returns False on conflict."""
-        r = self._perimeter()
-        return False if r is None else True
+        """Apply perimeter + conn_expand until stable. Returns False on conflict."""
+        while True:
+            c1 = self._perimeter()
+            if c1 is None:
+                return False
+            c2 = self._conn_expand()
+            if c2 is None:
+                return False
+            if not c1 and not c2:
+                break
+        return True
 
     # ---- surrounded & single unknown neighbor (rule 4) ----
     def _surrounded(self):
