@@ -151,6 +151,54 @@ class Solver:
                                 return False
                             break
 
+        # ---- surrounded checks ----
+        # Case 1: UNKNOWN neighbor — all known neighbors same color?
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            nr, nc = r + dr, c + dc
+            if not (0 <= nr < N and 0 <= nc < N) or g[nr][nc] != 0:
+                continue
+            color = None
+            ok = True
+            for ddr, ddc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nnr, nnc = nr + ddr, nc + ddc
+                if 0 <= nnr < N and 0 <= nnc < N:
+                    nnv = g[nnr][nnc]
+                    if nnv == 0:
+                        ok = False
+                        break
+                    if color is None:
+                        color = nnv
+                    elif nnv != color:
+                        ok = False
+                        break
+            if ok and color is not None:
+                if not self._set(nr, nc, color):
+                    return False
+
+        # Case 2: (r,c) and its colored neighbors — exactly 1 unknown, rest opposite?
+        for cr, cc in [(r, c)] + [(r + dr, c + dc) for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)) if 0 <= r+dr < N and 0 <= c+dc < N and g[r+dr][c+dc] != 0]:
+            cv2 = g[cr][cc]
+            opp2 = 2 if cv2 == 1 else 1
+            unk_pos = None
+            valid = True
+            for dr2, dc2 in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nnr, nnc = cr + dr2, cc + dc2
+                if 0 <= nnr < N and 0 <= nnc < N:
+                    nnv = g[nnr][nnc]
+                    if nnv == 0:
+                        if unk_pos is None:
+                            unk_pos = (nnr, nnc)
+                        else:
+                            valid = False
+                            break
+                    elif nnv != opp2:
+                        valid = False
+                        break
+            if valid and unk_pos is not None:
+                ur, uc = unk_pos
+                if not self._set(ur, uc, cv2):
+                    return False
+
         return True
 
     def _sn(self):
@@ -423,28 +471,23 @@ class Solver:
     def _propagate(self, verbose=False):
         """
         Apply deduction rules until stable.
-        (surrounded + perimeter + conn_expand; 2×2 & corner3 handled by _set incrementally)
+        (perimeter + conn_expand; 2×2, corner3 & surrounded handled by _set incrementally)
         """
         while True:
             self._prop_iterations += 1
             t0 = time.time()
-            c1 = self._surrounded()
-            self._timing['_surrounded'] = self._timing.get('_surrounded', 0) + time.time() - t0
+            c1 = self._perimeter()
+            self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
             if c1 is None:
                 return False
             t0 = time.time()
-            c2 = self._perimeter()
-            self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
+            c2 = self._conn_expand()
+            self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
             if c2 is None:
                 return False
-            t0 = time.time()
-            c3 = self._conn_expand()
-            self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
-            if c3 is None:
-                return False
-            if verbose and (c1 or c2 or c3):
+            if verbose and (c1 or c2):
                 self.pc()
-            if not c1 and not c2 and not c3:
+            if not c1 and not c2:
                 break
         return True
 
@@ -776,6 +819,7 @@ class Solver:
         # (after this, _set handles both incrementally)
         self._p2()
         self._corner3()
+        self._surrounded()
         if self._done():
             return True
         if not self._propagate(verbose=self.verbose):
@@ -870,7 +914,7 @@ class Solver:
         if self.verbose and self._timing:
             print(f"  propagate 迭代: {self._prop_iterations}")
             print(f"  规则耗时:")
-            for rule in ['_surrounded', '_perimeter', '_conn_expand']:
+            for rule in ['_perimeter', '_conn_expand']:
                 t = self._timing.get(rule, 0)
                 print(f"    {rule:20s} {t*1000:9.3f} ms")
         print("=" * 50)
