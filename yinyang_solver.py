@@ -265,10 +265,15 @@ class Solver:
 
         parent = list(range(S))
 
-        # Per-root neighbor sets
-        aw = [set() for _ in range(S)]
-        ab = [set() for _ in range(S)]
-        au = [set() for _ in range(S)]
+        # Per-root neighbor sets (lazy: None until first add)
+        aw = [None] * S
+        ab = [None] * S
+        au = [None] * S
+
+        def ensure(arr, idx):
+            if arr[idx] is None:
+                arr[idx] = set()
+            return arr[idx]
 
         def find(x):
             while parent[x] != x:
@@ -281,13 +286,25 @@ class Solver:
             if rx == ry:
                 return
             parent[ry] = rx
-            # merge sets from child root to parent root
-            if aw[ry]:
-                aw[rx] |= aw[ry]
-            if ab[ry]:
-                ab[rx] |= ab[ry]
-            if au[ry]:
-                au[rx] |= au[ry]
+            # merge sets from child root to parent root, then free child
+            if aw[ry] is not None:
+                if aw[rx] is None:
+                    aw[rx] = aw[ry]
+                else:
+                    aw[rx] |= aw[ry]
+                aw[ry] = None
+            if ab[ry] is not None:
+                if ab[rx] is None:
+                    ab[rx] = ab[ry]
+                else:
+                    ab[rx] |= ab[ry]
+                ab[ry] = None
+            if au[ry] is not None:
+                if au[rx] is None:
+                    au[rx] = au[ry]
+                else:
+                    au[rx] |= au[ry]
+                au[ry] = None
 
         # Single pass: union + build neighbor sets simultaneously
         for r in range(N):
@@ -303,22 +320,22 @@ class Solver:
                         else:
                             root, nroot = find(idx), find(nidx)
                             if v == 1:
-                                ab[root].add(nroot)
-                                aw[nroot].add(root)
+                                ensure(ab, root).add(nroot)
+                                ensure(aw, nroot).add(root)
                             else:
-                                aw[root].add(nroot)
-                                ab[nroot].add(root)
+                                ensure(aw, root).add(nroot)
+                                ensure(ab, nroot).add(root)
                     elif v and not nv:
                         root = find(idx)
-                        au[root].add(nidx)
-                        (aw if v == 2 else ab)[nidx].add(root)
+                        ensure(au, root).add(nidx)
+                        ensure(aw if v == 2 else ab, nidx).add(root)
                     elif not v and nv:
                         nroot = find(nidx)
-                        au[nroot].add(idx)
-                        (aw if nv == 2 else ab)[idx].add(nroot)
+                        ensure(au, nroot).add(idx)
+                        ensure(aw if nv == 2 else ab, idx).add(nroot)
                     else:  # both unknown
-                        au[idx].add(nidx)
-                        au[nidx].add(idx)
+                        ensure(au, idx).add(nidx)
+                        ensure(au, nidx).add(idx)
                 if r + 1 < N:
                     nv = g[r + 1][c]
                     nidx = (r + 1) * N + c
@@ -328,22 +345,22 @@ class Solver:
                         else:
                             root, nroot = find(idx), find(nidx)
                             if v == 1:
-                                ab[root].add(nroot)
-                                aw[nroot].add(root)
+                                ensure(ab, root).add(nroot)
+                                ensure(aw, nroot).add(root)
                             else:
-                                aw[root].add(nroot)
-                                ab[nroot].add(root)
+                                ensure(aw, root).add(nroot)
+                                ensure(ab, nroot).add(root)
                     elif v and not nv:
                         root = find(idx)
-                        au[root].add(nidx)
-                        (aw if v == 2 else ab)[nidx].add(root)
+                        ensure(au, root).add(nidx)
+                        ensure(aw if v == 2 else ab, nidx).add(root)
                     elif not v and nv:
                         nroot = find(nidx)
-                        au[nroot].add(idx)
-                        (aw if nv == 2 else ab)[idx].add(nroot)
+                        ensure(au, nroot).add(idx)
+                        ensure(aw if nv == 2 else ab, idx).add(nroot)
                     else:  # both unknown
-                        au[idx].add(nidx)
-                        au[nidx].add(idx)
+                        ensure(au, idx).add(nidx)
+                        ensure(au, nidx).add(idx)
 
         # Collect roots per color
         white_roots = set()
@@ -358,8 +375,6 @@ class Solver:
 
         changed = False
 
-        # After setting a cell to a color, update UF and neighbor sets.
-        # `roots` is the roots set for the color (white_roots or black_roots).
         def _absorb(cell, color, roots):
             r, c = divmod(cell, N)
             # Phase 1: remove cell from all neighbors' sets (it's no longer unknown)
@@ -368,15 +383,18 @@ class Solver:
                 if 0 <= nr < N and 0 <= nc < N:
                     nidx = nr * N + nc
                     if g[nr][nc] == 0:
-                        au[nidx].discard(cell)
-                        aw[nidx].discard(cell)
-                        ab[nidx].discard(cell)
+                        if au[nidx] is not None:
+                            au[nidx].discard(cell)
+                        if aw[nidx] is not None:
+                            aw[nidx].discard(cell)
+                        if ab[nidx] is not None:
+                            ab[nidx].discard(cell)
                     else:
                         nroot = find(nidx)
-                        au[nroot].discard(cell)
+                        if au[nroot] is not None:
+                            au[nroot].discard(cell)
 
             # Phase 2: establish new relationships.
-            # Use union(nidx, cell) so nidx's root survives and cell is absorbed.
             for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                 nr, nc = r + dr, c + dc
                 if not (0 <= nr < N and 0 <= nc < N):
@@ -385,21 +403,21 @@ class Solver:
                 nidx = nr * N + nc
                 if nv == 0:
                     my_root = find(cell)
-                    au[my_root].add(nidx)
-                    (aw if color == 2 else ab)[nidx].add(my_root)
+                    ensure(au, my_root).add(nidx)
+                    ensure(aw if color == 2 else ab, nidx).add(my_root)
                 elif nv == color:
                     if find(nidx) != find(cell):
                         roots.discard(find(cell))
-                        union(nidx, cell)  # nidx's root stays, cell merges in
+                        union(nidx, cell)
                 else:
                     my_root = find(cell)
                     nroot = find(nidx)
                     if color == 1:
-                        ab[my_root].add(nroot)
-                        aw[nroot].add(my_root)
+                        ensure(ab, my_root).add(nroot)
+                        ensure(aw, nroot).add(my_root)
                     else:
-                        aw[my_root].add(nroot)
-                        ab[nroot].add(my_root)
+                        ensure(aw, my_root).add(nroot)
+                        ensure(ab, nroot).add(my_root)
 
         for roots, color in ((white_roots, 1), (black_roots, 2)):
             if len(roots) >= 2:
@@ -407,7 +425,7 @@ class Solver:
                     if find(root) != root:
                         roots.discard(root)
                         continue
-                    b = len(au[root])
+                    b = len(au[root]) if au[root] else 0
                     if b == 0:
                         return None
                     if b == 1:
