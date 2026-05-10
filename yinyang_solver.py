@@ -22,8 +22,6 @@ class Solver:
         self.nodes = 0
         self.t0 = 0
         self._st = []     # undo stack
-        self._timing = {}
-        self._prop_iterations = 0
         self._wc = self._bc = self._uc = 0
 
     def load(self, grid):
@@ -552,20 +550,9 @@ class Solver:
         return changed
 
     def _propagate(self):
-        """
-        Apply deduction rules until stable.
-        (perimeter; all other rules handled by _set incrementally)
-        """
-        while True:
-            self._prop_iterations += 1
-            t0 = time.time()
-            c1 = self._perimeter()
-            self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
-            if c1 is None:
-                return False
-            if not c1:
-                break
-        return True
+        """Apply perimeter rule once. Returns False on conflict."""
+        r = self._perimeter()
+        return False if r is None else True
 
     # ---- surrounded & single unknown neighbor (rule 4) ----
     def _surrounded(self):
@@ -884,8 +871,6 @@ class Solver:
         self.t0 = time.time()
         self.nodes = 0
         self._st = []
-        self._timing = {}
-        self._prop_iterations = 0
         self._initial_grid = [row[:] for row in self.g]
         # Preprocessing: full-grid 2×2 & corner3 deduction
         # (after this, _set handles both incrementally)
@@ -991,12 +976,6 @@ class Solver:
         ok = self._ok()
         print(f"验证: {'✓' if ok else '✗'}")
         print(f"时间={time.time()-self.t0:.3f}s 节点={self.nodes}")
-        if self.verbose and self._timing:
-            print(f"  propagate 迭代: {self._prop_iterations}")
-            print(f"  规则耗时:")
-            for rule in ['_perimeter', '_conn_expand']:
-                t = self._timing.get(rule, 0)
-                print(f"    {rule:20s} {t*1000:9.3f} ms")
         print("=" * 50)
 
     def _save_puzzle(self, grid, tag=""):
