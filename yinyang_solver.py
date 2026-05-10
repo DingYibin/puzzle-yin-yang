@@ -459,9 +459,9 @@ class Solver:
     def _try_both(self):
         """
         For each unknown cell, try both colors with full propagation.
-        If one color leads to conflict, the other must be correct.
-        When a cell is forced, set it, propagate, and continue scanning.
-        If both colors conflict, skip and continue.
+        If exactly one color is viable, force it.
+        If both conflict, the puzzle is unsolvable → return False.
+        If both OK, skip and continue.
         Returns True if any cell was changed, False otherwise.
         """
         changed = False
@@ -474,22 +474,28 @@ class Solver:
                 ok_w = self._propagate()
                 self._ba(sp)
 
-                if not ok_w:
-                    # WHITE conflicts → BLACK must be correct
+                sp = self._sn()
+                self._set(r, c, self.BLACK)
+                ok_b = self._propagate()
+                self._ba(sp)
+
+                if ok_w and not ok_b:
+                    self._set(r, c, self.WHITE)
+                    self._propagate()
+                    changed = True
+                    if self.verbose:
+                        print(f"[try_both] force ({r},{c}) = WHITE")
+                        self.pc()
+                elif not ok_w and ok_b:
                     self._set(r, c, self.BLACK)
                     self._propagate()
                     changed = True
-                else:
-                    sp = self._sn()
-                    self._set(r, c, self.BLACK)
-                    ok_b = self._propagate()
-                    self._ba(sp)
-                    if not ok_b:
-                        # BLACK conflicts → WHITE must be correct
-                        self._set(r, c, self.WHITE)
-                        self._propagate()
-                        changed = True
-                    # both OK → skip
+                    if self.verbose:
+                        print(f"[try_both] force ({r},{c}) = BLACK")
+                        self.pc()
+                elif not ok_w and not ok_b:
+                    return False
+                # both OK → skip
         return changed
 
     def _propagate(self):
@@ -901,7 +907,11 @@ class Solver:
         for co in order:
             sp = self._sn()
             self._set(r, c, co)
-            if self._propagate() and self._dfs():
+            if self._propagate():
+                if self.verbose:
+                    print(f"[DFS] node {self.nodes}: try ({r},{c}) = {'WHITE' if co == 1 else 'BLACK'}")
+                    self.pc()
+                if self._dfs():
                     return True
             self._ba(sp)
         return False
