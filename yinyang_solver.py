@@ -492,10 +492,10 @@ class Solver:
                     # both OK → skip
         return changed
 
-    def _propagate(self, verbose=False):
+    def _propagate(self):
         """
         Apply deduction rules until stable.
-        (perimeter + conn_expand; 2×2, corner3 & surrounded handled by _set incrementally)
+        (perimeter + conn_expand; all other rules handled by _set incrementally)
         """
         while True:
             self._prop_iterations += 1
@@ -509,8 +509,6 @@ class Solver:
             self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
             if c2 is None:
                 return False
-            if verbose and (c1 or c2):
-                self.pc()
             if not c1 and not c2:
                 break
         return True
@@ -843,7 +841,7 @@ class Solver:
         self._conn_expand()
         if self._done():
             return True
-        if not self._propagate(verbose=self.verbose):
+        if not self._propagate():
             return False
         if self._done():
             return True
