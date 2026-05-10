@@ -24,14 +24,23 @@ class Solver:
         self._st = []     # undo stack
         self._timing = {}
         self._prop_iterations = 0
+        self._wc = self._bc = self._uc = 0
 
     def load(self, grid):
         self.N = len(grid)
         self.g = [row[:] for row in grid]
         self.fixed = [[False]*self.N for _ in range(self.N)]
+        self._wc = self._bc = self._uc = 0
         for r in range(self.N):
             for c in range(self.N):
-                if grid[r][c]:
+                v = grid[r][c]
+                if v == self.WHITE:
+                    self._wc += 1
+                elif v == self.BLACK:
+                    self._bc += 1
+                else:
+                    self._uc += 1
+                if v:
                     self.fixed[r][c] = True
 
     # ---- undo & incremental 2x2 ----
@@ -43,9 +52,17 @@ class Solver:
         If a filled 2×2 has both diagonals the same → conflict → return False.
         Returns True if valid, False if conflict.
         """
-        if self.g[r][c] == v:
+        old = self.g[r][c]
+        if old == v:
             return True
-        self._st.append((r, c, self.g[r][c]))
+        self._st.append((r, c, old))
+        # update counts
+        if old == 0: self._uc -= 1
+        elif old == 1: self._wc -= 1
+        else: self._bc -= 1
+        if v == 0: self._uc += 1
+        elif v == 1: self._wc += 1
+        else: self._bc += 1
         self.g[r][c] = v
 
         N, g = self.N, self.g
@@ -206,8 +223,15 @@ class Solver:
 
     def _ba(self, n):
         while len(self._st) > n:
-            r, c, v = self._st.pop()
-            self.g[r][c] = v
+            r, c, old = self._st.pop()
+            cur = self.g[r][c]
+            if cur == 0: self._uc -= 1
+            elif cur == 1: self._wc -= 1
+            else: self._bc -= 1
+            if old == 0: self._uc += 1
+            elif old == 1: self._wc += 1
+            else: self._bc += 1
+            self.g[r][c] = old
 
     # ---- 2x2 preprocessing (rules 1 & 2) ----
     def _p2(self):
@@ -742,11 +766,7 @@ class Solver:
         return True
 
     def _done(self):
-        for r in range(self.N):
-            for c in range(self.N):
-                if self.g[r][c] == self.UNKNOWN:
-                    return False
-        return True
+        return self._uc == 0
 
     # ---- cell selection ----
     def _pick(self):
