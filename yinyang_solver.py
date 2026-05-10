@@ -34,9 +34,10 @@ class Solver:
     # ---- undo & incremental 2x2 ----
     def _set(self, r, c, v):
         """
-        Set cell (r,c) to v, then check the 4 surrounding 2×2 blocks.
+        Set cell (r,c) to v, then check the 4 surrounding 2×2 blocks
+        and 8 surrounding 2×3/3×2 blocks.
         If a block has 3 of one color + 1 unknown → set the unknown.
-        If a filled block has both diagonals the same → conflict → return False.
+        If a filled 2×2 has both diagonals the same → conflict → return False.
         Returns True if valid, False if conflict.
         """
         if self.g[r][c] == v:
@@ -45,6 +46,8 @@ class Solver:
         self.g[r][c] = v
 
         N, g = self.N, self.g
+
+        # ---- 2×2 checks (4 blocks) ----
         for dr in (-1, 0):
             for dc in (-1, 0):
                 tr, tc = r + dr, c + dc  # top-left corner of 2×2 block
@@ -57,7 +60,6 @@ class Solver:
                 if all(v != 0 for v in vv) and vv[0] == vv[3] and vv[1] == vv[2]:
                     return False
 
-                # Find unknown and color counts
                 uk = None
                 wc = bc = 0
                 for i, val in enumerate(vv):
@@ -73,7 +75,7 @@ class Solver:
                     uv, ux, uy = (2, *cells[uk]) if wc == 3 else (1, *cells[uk])
                     if not self._set(ux, uy, uv):
                         return False
-                    continue  # block fully resolved, skip rule 2
+                    continue
 
                 # Rule 2: diagonal pair of C + one corner O → last must be C
                 v0, v1, v2, v3 = vv
@@ -95,6 +97,57 @@ class Solver:
                         if not self._set(cells[0][0], cells[0][1], v1):
                             return False
                         continue
+
+        # ---- 2×3 horizontal checks (4 blocks where (r,c) is a corner) ----
+        for dr in (-1, 0):
+            for dc in (-2, 0):
+                tr, tc = r + dr, c + dc
+                if not (0 <= tr <= N - 2 and 0 <= tc <= N - 3):
+                    continue
+                corners = [(tr, tc), (tr, tc + 2), (tr + 1, tc), (tr + 1, tc + 2)]
+                cv = [g[x][y] for x, y in corners]
+                if any(v == 0 for v in cv):
+                    continue
+                wc = sum(1 for v in cv if v == 1)
+                bc = sum(1 for v in cv if v == 2)
+                if wc == 3 and bc == 1:
+                    for (cr, _), val in zip(corners, cv):
+                        if val == 2 and g[cr][tc + 1] == 0:
+                            if not self._set(cr, tc + 1, 2):
+                                return False
+                            break
+                elif bc == 3 and wc == 1:
+                    for (cr, _), val in zip(corners, cv):
+                        if val == 1 and g[cr][tc + 1] == 0:
+                            if not self._set(cr, tc + 1, 1):
+                                return False
+                            break
+
+        # ---- 3×2 vertical checks (4 blocks where (r,c) is a corner) ----
+        for dr in (-2, 0):
+            for dc in (-1, 0):
+                tr, tc = r + dr, c + dc
+                if not (0 <= tr <= N - 3 and 0 <= tc <= N - 2):
+                    continue
+                corners = [(tr, tc), (tr + 2, tc), (tr, tc + 1), (tr + 2, tc + 1)]
+                cv = [g[x][y] for x, y in corners]
+                if any(v == 0 for v in cv):
+                    continue
+                wc = sum(1 for v in cv if v == 1)
+                bc = sum(1 for v in cv if v == 2)
+                if wc == 3 and bc == 1:
+                    for (_, cc), val in zip(corners, cv):
+                        if val == 2 and g[tr + 1][cc] == 0:
+                            if not self._set(tr + 1, cc, 2):
+                                return False
+                            break
+                elif bc == 3 and wc == 1:
+                    for (_, cc), val in zip(corners, cv):
+                        if val == 1 and g[tr + 1][cc] == 0:
+                            if not self._set(tr + 1, cc, 1):
+                                return False
+                            break
+
         return True
 
     def _sn(self):
@@ -402,7 +455,7 @@ class Solver:
     def _propagate(self, verbose=False):
         """
         Apply deduction rules until stable.
-        (surrounded + corner3 + perimeter + conn_expand; 2×2 is handled by _set incrementally)
+        (surrounded + perimeter + conn_expand; 2×2 & corner3 handled by _set incrementally)
         """
         while True:
             self._prop_iterations += 1
@@ -412,23 +465,18 @@ class Solver:
             if c1 is None:
                 return False
             t0 = time.time()
-            c2 = self._corner3()
-            self._timing['_corner3'] = self._timing.get('_corner3', 0) + time.time() - t0
+            c2 = self._perimeter()
+            self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
             if c2 is None:
                 return False
             t0 = time.time()
-            c3 = self._perimeter()
-            self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
+            c3 = self._conn_expand()
+            self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
             if c3 is None:
                 return False
-            t0 = time.time()
-            c4 = self._conn_expand()
-            self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
-            if c4 is None:
-                return False
-            if verbose and (c1 or c2 or c3 or c4):
+            if verbose and (c1 or c2 or c3):
                 self.pc()
-            if not c1 and not c2 and not c3 and not c4:
+            if not c1 and not c2 and not c3:
                 break
         return True
 
@@ -755,8 +803,10 @@ class Solver:
         self._st = []
         self._timing = {}
         self._prop_iterations = 0
-        # Preprocessing: full-grid 2×2 deduction (after this, _set handles it incrementally)
+        # Preprocessing: full-grid 2×2 & corner3 deduction
+        # (after this, _set handles both incrementally)
         self._p2()
+        self._corner3()
         if self._done():
             return True
         if not self._propagate(verbose=self.verbose):
@@ -847,7 +897,7 @@ class Solver:
         if self.verbose and self._timing:
             print(f"  propagate 迭代: {self._prop_iterations}")
             print(f"  规则耗时:")
-            for rule in ['_surrounded', '_corner3', '_perimeter', '_conn_expand']:
+            for rule in ['_surrounded', '_perimeter', '_conn_expand']:
                 t = self._timing.get(rule, 0)
                 print(f"    {rule:20s} {t*1000:9.3f} ms")
         print("=" * 50)
