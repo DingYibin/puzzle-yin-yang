@@ -470,25 +470,23 @@ class Solver:
                 if self.g[r][c] != self.UNKNOWN:
                     continue
                 sp = self._sn()
-                self._set(r, c, self.WHITE)
-                ok_w = self._propagate()
+                ok_w = self._set(r, c, self.WHITE) and self._propagate()
                 self._ba(sp)
 
                 sp = self._sn()
-                self._set(r, c, self.BLACK)
-                ok_b = self._propagate()
+                ok_b = self._set(r, c, self.BLACK) and self._propagate()
                 self._ba(sp)
 
                 if ok_w and not ok_b:
-                    self._set(r, c, self.WHITE)
-                    self._propagate()
+                    if not self._set(r, c, self.WHITE) or not self._propagate():
+                        return False
                     changed = True
                     if self.verbose:
                         print(f"[try_both] force ({r},{c}) = WHITE")
                         self.pc()
                 elif not ok_w and ok_b:
-                    self._set(r, c, self.BLACK)
-                    self._propagate()
+                    if not self._set(r, c, self.BLACK) or not self._propagate():
+                        return False
                     changed = True
                     if self.verbose:
                         print(f"[try_both] force ({r},{c}) = BLACK")
