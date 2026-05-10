@@ -437,19 +437,22 @@ class Solver:
                 ok_w = self._propagate()
                 self._ba(sp)
 
-                sp = self._sn()
-                self._set(r, c, self.BLACK)
-                ok_b = self._propagate()
-                self._ba(sp)
-
-                if ok_w and not ok_b:
-                    self._set(r, c, self.WHITE)
-                    self._propagate()
-                    changed = True
-                elif not ok_w and ok_b:
+                if not ok_w:
+                    # WHITE conflicts → BLACK must be correct
                     self._set(r, c, self.BLACK)
                     self._propagate()
                     changed = True
+                else:
+                    sp = self._sn()
+                    self._set(r, c, self.BLACK)
+                    ok_b = self._propagate()
+                    self._ba(sp)
+                    if not ok_b:
+                        # BLACK conflicts → WHITE must be correct
+                        self._set(r, c, self.WHITE)
+                        self._propagate()
+                        changed = True
+                    # both OK → skip
         return changed
 
     def _propagate(self, verbose=False):
