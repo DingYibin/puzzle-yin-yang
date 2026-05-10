@@ -31,11 +31,71 @@ class Solver:
                 if grid[r][c]:
                     self.fixed[r][c] = True
 
-    # ---- undo ----
+    # ---- undo & incremental 2x2 ----
     def _set(self, r, c, v):
-        if self.g[r][c] != v:
-            self._st.append((r, c, self.g[r][c]))
-            self.g[r][c] = v
+        """
+        Set cell (r,c) to v, then check the 4 surrounding 2×2 blocks.
+        If a block has 3 of one color + 1 unknown → set the unknown.
+        If a filled block has both diagonals the same → conflict → return False.
+        Returns True if valid, False if conflict.
+        """
+        if self.g[r][c] == v:
+            return True
+        self._st.append((r, c, self.g[r][c]))
+        self.g[r][c] = v
+
+        N, g = self.N, self.g
+        for dr in (-1, 0):
+            for dc in (-1, 0):
+                tr, tc = r + dr, c + dc  # top-left corner of 2×2 block
+                if not (0 <= tr <= N - 2 and 0 <= tc <= N - 2):
+                    continue
+                cells = [(tr, tc), (tr, tc + 1), (tr + 1, tc), (tr + 1, tc + 1)]
+                vv = [g[x][y] for x, y in cells]
+
+                # All filled + invalid diagonal → conflict
+                if all(v != 0 for v in vv) and vv[0] == vv[3] and vv[1] == vv[2]:
+                    return False
+
+                # Find unknown and color counts
+                uk = None
+                wc = bc = 0
+                for i, val in enumerate(vv):
+                    if val == 0:
+                        uk = i
+                    elif val == 1:
+                        wc += 1
+                    else:
+                        bc += 1
+
+                # Rule 1: 3 same → 4th opposite
+                if uk is not None and (wc == 3 or bc == 3):
+                    uv, ux, uy = (2, *cells[uk]) if wc == 3 else (1, *cells[uk])
+                    if not self._set(ux, uy, uv):
+                        return False
+                    continue  # block fully resolved, skip rule 2
+
+                # Rule 2: diagonal pair of C + one corner O → last must be C
+                v0, v1, v2, v3 = vv
+                if v0 != 0 and v0 == v3:
+                    if v1 != 0 and v1 != v0 and v2 == 0:
+                        if not self._set(cells[2][0], cells[2][1], v0):
+                            return False
+                        continue
+                    if v2 != 0 and v2 != v0 and v1 == 0:
+                        if not self._set(cells[1][0], cells[1][1], v0):
+                            return False
+                        continue
+                if v1 != 0 and v1 == v2:
+                    if v0 != 0 and v0 != v1 and v3 == 0:
+                        if not self._set(cells[3][0], cells[3][1], v1):
+                            return False
+                        continue
+                    if v3 != 0 and v3 != v1 and v0 == 0:
+                        if not self._set(cells[0][0], cells[0][1], v1):
+                            return False
+                        continue
+        return True
 
     def _sn(self):
         return len(self._st)
@@ -45,74 +105,57 @@ class Solver:
             r, c, v = self._st.pop()
             self.g[r][c] = v
 
-    # ---- 2x2 propagation (rules 1 & 2) ----
+    # ---- 2x2 preprocessing (rules 1 & 2) ----
     def _p2(self):
         """
+        Full-grid 2×2 deduction scan (runs once during preprocessing).
         Rule 1: 2×2 block has 3 same → 4th must be opposite.
         Rule 2: 2×2 block has diagonal pair of C and one corner of O → last must be C.
-        Returns True if any cell was changed, False if no changes.
-        Returns None if a fully-filled 2×2 block has both diagonals same color (invalid).
+        After this, _set handles all incremental 2×2 propagation.
+        Returns True if any cell was changed.
         """
         changed = False
-        while True:
-            hit = False
-            for r in range(self.N-1):
-                for c in range(self.N-1):
-                    cells = [(r,c),(r,c+1),(r+1,c),(r+1,c+1)]
-                    vals = [self.g[x][y] for x,y in cells]
+        for r in range(self.N - 1):
+            for c in range(self.N - 1):
+                cells = [(r,c),(r,c+1),(r+1,c),(r+1,c+1)]
+                vals = [self.g[x][y] for x,y in cells]
 
-                    # Rule 1: 3 same → 4th opposite
-                    uk = None
-                    wc = bc = 0
-                    for i, v in enumerate(vals):
-                        if v == self.UNKNOWN:
-                            uk = i
-                        elif v == self.WHITE:
-                            wc += 1
-                        elif v == self.BLACK:
-                            bc += 1
-                    if uk is not None and (wc == 3 or bc == 3):
-                        x, y = cells[uk]
-                        nv = self.BLACK if wc == 3 else self.WHITE
+                uk = None
+                wc = bc = 0
+                for i, v in enumerate(vals):
+                    if v == self.UNKNOWN:
+                        uk = i
+                    elif v == self.WHITE:
+                        wc += 1
+                    elif v == self.BLACK:
+                        bc += 1
+
+                if uk is not None and (wc == 3 or bc == 3):
+                    x, y = cells[uk]
+                    nv = self.BLACK if wc == 3 else self.WHITE
+                    self._set(x, y, nv)
+                    changed = True
+                    continue
+
+                v0, v1, v2, v3 = vals
+                if v0 != self.UNKNOWN and v0 == v3:
+                    if v1 != self.UNKNOWN and v1 != v0 and v2 == self.UNKNOWN:
+                        self._set(r + 1, c, v0)
                         changed = True
-                        self._set(x, y, nv)
-                        hit = True
                         continue
-
-                    # Rule 2: diagonal pair of C + one corner O → last must be C
-                    # Case 1: diagonal \ (v0==v3)
-                    v0, v1, v2, v3 = vals
-                    if v0 != self.UNKNOWN and v0 == v3:
-                        if v1 != self.UNKNOWN and v1 != v0 and v2 == self.UNKNOWN:
-                            changed = True
-                            self._set(r+1, c, v0)
-                            hit = True
-                            continue
-                        if v2 != self.UNKNOWN and v2 != v0 and v1 == self.UNKNOWN:
-                            changed = True
-                            self._set(r, c+1, v0)
-                            hit = True
-                            continue
-                    # Case 2: diagonal / (v1==v2)
-                    if v1 != self.UNKNOWN and v1 == v2:
-                        if v0 != self.UNKNOWN and v0 != v1 and v3 == self.UNKNOWN:
-                            changed = True
-                            self._set(r+1, c+1, v1)
-                            hit = True
-                            continue
-                        if v3 != self.UNKNOWN and v3 != v1 and v0 == self.UNKNOWN:
-                            changed = True
-                            self._set(r, c, v1)
-                            hit = True
-                            continue
-
-                    # Validity: full 2×2 block with both diagonals same color is invalid
-                    # Covers: all 4 same (e.g. W W / W W) and checkerboard (e.g. W B / B W)
-                    if uk is None and v0 == v3 and v1 == v2:
-                        return None
-
-            if not hit:
-                break
+                    if v2 != self.UNKNOWN and v2 != v0 and v1 == self.UNKNOWN:
+                        self._set(r, c + 1, v0)
+                        changed = True
+                        continue
+                if v1 != self.UNKNOWN and v1 == v2:
+                    if v0 != self.UNKNOWN and v0 != v1 and v3 == self.UNKNOWN:
+                        self._set(r + 1, c + 1, v1)
+                        changed = True
+                        continue
+                    if v3 != self.UNKNOWN and v3 != v1 and v0 == self.UNKNOWN:
+                        self._set(r, c, v1)
+                        changed = True
+                        continue
         return changed
 
     # ---- component analysis & bridge rule ----
@@ -194,7 +237,8 @@ class Solver:
                     if self.fixed[br][bc] and self.g[br][bc] != color:
                         return False
                     if self.g[br][bc] != color:
-                        self._set(br, bc, color)
+                        if not self._set(br, bc, color):
+                            return False
             if total_b < k - 1:
                 return False
         return True
@@ -369,7 +413,8 @@ class Solver:
                         cell = next(iter(au[root]))
                         ur, uc = divmod(cell, N)
                         if g[ur][uc] != color:
-                            self._set(ur, uc, color)
+                            if not self._set(ur, uc, color):
+                                return None
                             _absorb(cell, color, roots)
                             changed = True
                             if len(roots) < 2:
@@ -411,31 +456,35 @@ class Solver:
         return changed
 
     def _propagate(self, verbose=False):
-        """Apply deduction rules until stable (p2 + surrounded + corner3 + perimeter + conn_expand)."""
+        """
+        Apply deduction rules until stable.
+        (surrounded + corner3 + perimeter + conn_expand; 2×2 is handled by _set incrementally)
+        """
         while True:
             self._prop_iterations += 1
             t0 = time.time()
-            c1 = self._p2()
-            self._timing['_p2'] = self._timing.get('_p2', 0) + time.time() - t0
+            c1 = self._surrounded()
+            self._timing['_surrounded'] = self._timing.get('_surrounded', 0) + time.time() - t0
             if c1 is None:
                 return False
             t0 = time.time()
-            c2 = self._surrounded()
-            self._timing['_surrounded'] = self._timing.get('_surrounded', 0) + time.time() - t0
-            t0 = time.time()
-            c3 = self._corner3()
+            c2 = self._corner3()
             self._timing['_corner3'] = self._timing.get('_corner3', 0) + time.time() - t0
-            t0 = time.time()
-            c4 = self._perimeter()
-            self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
-            t0 = time.time()
-            c5 = self._conn_expand()
-            self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
-            if c5 is None:
+            if c2 is None:
                 return False
-            if verbose and (c1 or c2 or c3 or c4 or c5):
+            t0 = time.time()
+            c3 = self._perimeter()
+            self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
+            if c3 is None:
+                return False
+            t0 = time.time()
+            c4 = self._conn_expand()
+            self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
+            if c4 is None:
+                return False
+            if verbose and (c1 or c2 or c3 or c4):
                 self.pc()
-            if not c1 and not c2 and not c3 and not c4 and not c5:
+            if not c1 and not c2 and not c3 and not c4:
                 break
         return True
 
@@ -468,7 +517,8 @@ class Solver:
                                 ok = False
                                 break
                     if ok and color is not None:
-                        self._set(r, c, color)
+                        if not self._set(r, c, color):
+                            return None
                         changed = True
                 else:
                     # Case 2: colored cell, check for single unknown exit
@@ -489,7 +539,8 @@ class Solver:
                                 break
                     if unk_pos is not None:
                         ur, uc = unk_pos
-                        self._set(ur, uc, v)
+                        if not self._set(ur, uc, v):
+                            return None
                         changed = True
         return changed
 
@@ -508,12 +559,14 @@ class Solver:
         if wc == 3 and bc == 1:
             for (cr, _), v in zip(corners, vals):
                 if v == self.BLACK and g[cr][c+1] == self.UNKNOWN:
-                    self._set(cr, c+1, self.BLACK)
+                    if not self._set(cr, c+1, self.BLACK):
+                        return None
                     return True
         elif bc == 3 and wc == 1:
             for (cr, _), v in zip(corners, vals):
                 if v == self.WHITE and g[cr][c+1] == self.UNKNOWN:
-                    self._set(cr, c+1, self.WHITE)
+                    if not self._set(cr, c+1, self.WHITE):
+                        return None
                     return True
         return False
 
@@ -531,12 +584,14 @@ class Solver:
         if wc == 3 and bc == 1:
             for (_, cc), v in zip(corners, vals):
                 if v == self.BLACK and g[r+1][cc] == self.UNKNOWN:
-                    self._set(r+1, cc, self.BLACK)
+                    if not self._set(r+1, cc, self.BLACK):
+                        return None
                     return True
         elif bc == 3 and wc == 1:
             for (_, cc), v in zip(corners, vals):
                 if v == self.WHITE and g[r+1][cc] == self.UNKNOWN:
-                    self._set(r+1, cc, self.WHITE)
+                    if not self._set(r+1, cc, self.WHITE):
+                        return None
                     return True
         return False
 
@@ -546,14 +601,21 @@ class Solver:
         one color and 1 of the other, the middle cell adjacent to the
         minority corner must also be the minority color.
         Returns True if any cell was changed, False otherwise.
+        Returns None if conflict detected.
         """
         changed = False
         N = self.N
         for r in range(N - 1):
             for c in range(N - 1):
-                if self._corner3_h(r, c):
+                rv = self._corner3_h(r, c)
+                if rv is None:
+                    return None
+                if rv:
                     changed = True
-                if self._corner3_v(r, c):
+                rv = self._corner3_v(r, c)
+                if rv is None:
+                    return None
+                if rv:
                     changed = True
         return changed
 
@@ -606,7 +668,8 @@ class Solver:
                 # Fill unknowns on this arc
                 for a in arc:
                     if self.g[peri[a][0]][peri[a][1]] == self.UNKNOWN:
-                        self._set(peri[a][0], peri[a][1], color)
+                        if not self._set(peri[a][0], peri[a][1], color):
+                            return None
                         changed = True
 
         return changed
@@ -748,6 +811,10 @@ class Solver:
         self._st = []
         self._timing = {}
         self._prop_iterations = 0
+        # Preprocessing: full-grid 2×2 deduction (after this, _set handles it incrementally)
+        self._p2()
+        if self._done():
+            return True
         if not self._propagate(verbose=self.verbose):
             return False
         if self._done():
@@ -836,7 +903,7 @@ class Solver:
         if self.verbose and self._timing:
             print(f"  propagate 迭代: {self._prop_iterations}")
             print(f"  规则耗时:")
-            for rule in ['_p2', '_surrounded', '_corner3', '_perimeter', '_conn_expand']:
+            for rule in ['_surrounded', '_corner3', '_perimeter', '_conn_expand']:
                 t = self._timing.get(rule, 0)
                 print(f"    {rule:20s} {t*1000:9.3f} ms")
         print("=" * 50)
