@@ -24,6 +24,7 @@ class Solver:
         self._st = []     # undo stack
         self._timing = {}
         self._prop_iterations = 0
+        self._save_disabled = False
 
     def load(self, grid):
         self.N = len(grid)
@@ -835,9 +836,10 @@ class Solver:
                 return False
             if self._done():
                 return True
-        if self.verbose:
-            print("Try-both 无法完成求解，自动保存谜题...")
-        self._save_puzzle(self._initial_grid, tag="dfs")
+        if not self._save_disabled:
+            if self.verbose:
+                print("Try-both 无法完成求解，自动保存谜题...")
+            self._save_puzzle(self._initial_grid, tag="dfs")
         return self._dfs()
 
     def _dfs(self):

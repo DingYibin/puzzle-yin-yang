@@ -219,10 +219,12 @@ def main():
 
     grid = None
     N = 0
+    loaded_from_file = False
 
     if load_path:
         grid = load_puzzle(load_path)
         N = len(grid) if grid else 0
+        loaded_from_file = True
     elif use_daily:
         print("获取每日谜题...")
         grid, N, pid = get_puzzle('daily')
@@ -285,6 +287,8 @@ def main():
     # Solve
     solver = Solver(time_limit=time_limit, verbose=verbose)
     solver.load(grid)
+    if loaded_from_file:
+        solver._save_disabled = True
     print(f"\n求解 {solver.N}x{solver.N} Yin-Yang 谜题...")
     solver.pc()
 
