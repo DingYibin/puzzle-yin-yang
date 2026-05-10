@@ -199,21 +199,130 @@ class Solver:
 
     def _conn_expand(self):
         """
-        Connectivity expansion: if a color has 2+ components and one component
-        has exactly 1 unknown boundary cell, force that cell to the color.
-        Returns True if any cell was changed, False otherwise.
+        Connectivity expansion via Union-Find with per-root neighbor sets.
+
+        Three sets per root node:
+          aw — adjacent WHITE component roots
+          ab — adjacent BLACK component roots
+          au — adjacent UNKNOWN cell indices
+
+        If a color has 2+ components and one component has exactly 1 unknown
+        boundary cell, force that cell to the component's color.
+        Returns True if any cell was changed, False if no changes.
+        Returns None if a color has 2+ components but one has 0 unknown
+        boundary cells (impossible to connect, current state is invalid).
         """
+        N = self.N
+        g = self.g
+        S = N * N
+
+        parent = list(range(S))
+
+        # Per-root neighbor sets
+        aw = [set() for _ in range(S)]
+        ab = [set() for _ in range(S)]
+        au = [set() for _ in range(S)]
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(x, y):
+            rx, ry = find(x), find(y)
+            if rx == ry:
+                return
+            parent[ry] = rx
+            # merge sets from child root to parent root
+            if aw[ry]:
+                aw[rx] |= aw[ry]
+            if ab[ry]:
+                ab[rx] |= ab[ry]
+            if au[ry]:
+                au[rx] |= au[ry]
+
+        # Single pass: union + build neighbor sets simultaneously
+        for r in range(N):
+            for c in range(N):
+                v = g[r][c]
+                idx = r * N + c
+                if c + 1 < N:
+                    nv = g[r][c + 1]
+                    nidx = r * N + c + 1
+                    if v and nv:
+                        if v == nv:
+                            union(idx, nidx)
+                        else:
+                            root, nroot = find(idx), find(nidx)
+                            if v == 1:
+                                ab[root].add(nroot)
+                                aw[nroot].add(root)
+                            else:
+                                aw[root].add(nroot)
+                                ab[nroot].add(root)
+                    elif v and not nv:
+                        root = find(idx)
+                        au[root].add(nidx)
+                        (aw if v == 2 else ab)[nidx].add(root)
+                    elif not v and nv:
+                        nroot = find(nidx)
+                        au[nroot].add(idx)
+                        (aw if nv == 2 else ab)[idx].add(nroot)
+                    else:  # both unknown
+                        au[idx].add(nidx)
+                        au[nidx].add(idx)
+                if r + 1 < N:
+                    nv = g[r + 1][c]
+                    nidx = (r + 1) * N + c
+                    if v and nv:
+                        if v == nv:
+                            union(idx, nidx)
+                        else:
+                            root, nroot = find(idx), find(nidx)
+                            if v == 1:
+                                ab[root].add(nroot)
+                                aw[nroot].add(root)
+                            else:
+                                aw[root].add(nroot)
+                                ab[nroot].add(root)
+                    elif v and not nv:
+                        root = find(idx)
+                        au[root].add(nidx)
+                        (aw if v == 2 else ab)[nidx].add(root)
+                    elif not v and nv:
+                        nroot = find(nidx)
+                        au[nroot].add(idx)
+                        (aw if nv == 2 else ab)[idx].add(nroot)
+                    else:  # both unknown
+                        au[idx].add(nidx)
+                        au[nidx].add(idx)
+
+        # Collect roots per color
+        white_roots = set()
+        black_roots = set()
+        for r in range(N):
+            for c in range(N):
+                v = g[r][c]
+                if v == 1:
+                    white_roots.add(find(r * N + c))
+                elif v == 2:
+                    black_roots.add(find(r * N + c))
+
         changed = False
-        for color in (self.WHITE, self.BLACK):
-            comps = self._find_comps(color)
-            if len(comps) < 2:
-                continue
-            for _, boundary in comps:
-                if len(boundary) == 1:
-                    br, bc = next(iter(boundary))
-                    if self.g[br][bc] != color:
-                        self._set(br, bc, color)
-                        changed = True
+
+        for roots, color in ((white_roots, 1), (black_roots, 2)):
+            if len(roots) >= 2:
+                for root in roots:
+                    b = len(au[root])
+                    if b == 0:
+                        return None
+                    if b == 1:
+                        ur, uc = divmod(next(iter(au[root])), N)
+                        if g[ur][uc] != color:
+                            self._set(ur, uc, color)
+                            changed = True
+
         return changed
 
     def _propagate(self, verbose=False):
@@ -226,6 +335,8 @@ class Solver:
             c3 = self._corner3()
             c4 = self._perimeter()
             c5 = self._conn_expand()
+            if c5 is None:
+                return False
             if verbose and (c1 or c2 or c3 or c4 or c5):
                 self.pc()
             if not c1 and not c2 and not c3 and not c4 and not c5:
