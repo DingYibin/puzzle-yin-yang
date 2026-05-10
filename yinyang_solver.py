@@ -311,17 +311,67 @@ class Solver:
 
         changed = False
 
+        # After setting a cell to a color, update UF and neighbor sets.
+        # `roots` is the roots set for the color (white_roots or black_roots).
+        def _absorb(cell, color, roots):
+            r, c = divmod(cell, N)
+            # Phase 1: remove cell from all neighbors' sets (it's no longer unknown)
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < N and 0 <= nc < N:
+                    nidx = nr * N + nc
+                    if g[nr][nc] == 0:
+                        au[nidx].discard(cell)
+                        aw[nidx].discard(cell)
+                        ab[nidx].discard(cell)
+                    else:
+                        nroot = find(nidx)
+                        au[nroot].discard(cell)
+
+            # Phase 2: establish new relationships.
+            # Use union(nidx, cell) so nidx's root survives and cell is absorbed.
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = r + dr, c + dc
+                if not (0 <= nr < N and 0 <= nc < N):
+                    continue
+                nv = g[nr][nc]
+                nidx = nr * N + nc
+                if nv == 0:
+                    my_root = find(cell)
+                    au[my_root].add(nidx)
+                    (aw if color == 2 else ab)[nidx].add(my_root)
+                elif nv == color:
+                    if find(nidx) != find(cell):
+                        roots.discard(find(cell))
+                        union(nidx, cell)  # nidx's root stays, cell merges in
+                else:
+                    my_root = find(cell)
+                    nroot = find(nidx)
+                    if color == 1:
+                        ab[my_root].add(nroot)
+                        aw[nroot].add(my_root)
+                    else:
+                        aw[my_root].add(nroot)
+                        ab[nroot].add(my_root)
+
         for roots, color in ((white_roots, 1), (black_roots, 2)):
             if len(roots) >= 2:
-                for root in roots:
+                for root in list(roots):
+                    if find(root) != root:
+                        roots.discard(root)
+                        continue
                     b = len(au[root])
                     if b == 0:
                         return None
                     if b == 1:
-                        ur, uc = divmod(next(iter(au[root])), N)
+                        cell = next(iter(au[root]))
+                        ur, uc = divmod(cell, N)
                         if g[ur][uc] != color:
                             self._set(ur, uc, color)
+                            _absorb(cell, color, roots)
                             changed = True
+                            if len(roots) < 2:
+                                break
 
         return changed
 
