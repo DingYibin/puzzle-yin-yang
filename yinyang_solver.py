@@ -837,7 +837,7 @@ class Solver:
                 return True
         if self.verbose:
             print("Try-both 无法完成求解，自动保存谜题...")
-        self._save_puzzle(self._initial_grid)
+        self._save_puzzle(self._initial_grid, tag="dfs")
         return self._dfs()
 
     def _dfs(self):
@@ -912,13 +912,14 @@ class Solver:
                 print(f"    {rule:20s} {t*1000:9.3f} ms")
         print("=" * 50)
 
-    def _save_puzzle(self, grid):
+    def _save_puzzle(self, grid, tag=""):
         """Save puzzle to puzzles/<timestamp>.json when try_both cannot fully solve."""
         task = encode(grid)
         w = len(grid)
         h = len(grid[0]) if grid else w
         data = {"task": task, "puzzleWidth": w, "puzzleHeight": h}
-        filename = "puzzle-yin-yang_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".json"
+        tag_suffix = f"_{tag}" if tag else ""
+        filename = f"puzzle-yin-yang{tag_suffix}_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".json"
         os.makedirs("puzzles", exist_ok=True)
         filepath = os.path.join("puzzles", filename)
         with open(filepath, "w") as f:
