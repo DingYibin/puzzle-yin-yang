@@ -287,13 +287,11 @@ def main():
     # Solve
     solver = Solver(time_limit=time_limit, verbose=verbose)
     solver.load(grid)
-    if loaded_from_file:
-        solver._save_disabled = True
     print(f"\n求解 {solver.N}x{solver.N} Yin-Yang 谜题...")
     solver.pc()
 
     t0 = time.time()
-    ok = solver.solve()
+    ok = solver.solve(save_on_fail=not loaded_from_file)
     elapsed = time.time() - t0
 
     if ok:
