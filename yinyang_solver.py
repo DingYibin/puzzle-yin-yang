@@ -187,62 +187,6 @@ class Solver:
                     res.append((cells, boundary))  # noqa: F841
         return res
 
-    def _bridge(self):
-        """
-        Bridge rule: component with 1 boundary → forced.
-        Also check 0 boundary → conflict, and total_boundary < k-1 → impossible.
-        """
-        # Quick check: count components per color (stop at 2)
-        def count_comps_fast(color, limit=2):
-            cnt = 0
-            visited = [[0]*self.N for _ in range(self.N)]
-            # Use a different marker technique or just a simple queue
-            for r in range(self.N):
-                for c in range(self.N):
-                    if self.g[r][c] == color and not visited[r][c]:
-                        cnt += 1
-                        if cnt >= limit:
-                            return cnt
-                        # BFS to mark this component
-                        q = deque([(r, c)])
-                        visited[r][c] = True
-                        while q:
-                            cr, cc = q.popleft()
-                            for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
-                                nr, nc = cr+dr, cc+dc
-                                if 0 <= nr < self.N and 0 <= nc < self.N and not visited[nr][nc] and self.g[nr][nc] == color:
-                                    visited[nr][nc] = True
-                                    q.append((nr, nc))
-            return cnt
-
-        w_cnt = count_comps_fast(self.WHITE)
-        b_cnt = count_comps_fast(self.BLACK)
-
-        if w_cnt <= 1 and b_cnt <= 1:
-            return True
-
-        for color in (self.WHITE, self.BLACK):
-            comps = self._find_comps(color)
-            k = len(comps)
-            if k <= 1:
-                continue
-            total_b = 0
-            for _, boundary in comps:
-                b = len(boundary)
-                total_b += b
-                if b == 0:
-                    return False
-                if b == 1:
-                    br, bc = next(iter(boundary))
-                    if self.fixed[br][bc] and self.g[br][bc] != color:
-                        return False
-                    if self.g[br][bc] != color:
-                        if not self._set(br, bc, color):
-                            return False
-            if total_b < k - 1:
-                return False
-        return True
-
     def _conn_expand(self):
         """
         Connectivity expansion via Union-Find with per-root neighbor sets.
