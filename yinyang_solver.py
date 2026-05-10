@@ -216,6 +216,16 @@ class Solver:
                 if not self._set(ur, uc, cv2):
                     return False
 
+        # ---- bfs_comp checks ----
+        opp_v = self.BLACK if v == self.WHITE else self.WHITE
+        if not self._bfs_comp(r, c):
+            return False
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < self.N and 0 <= nc < self.N and self.g[nr][nc] == opp_v:
+                if not self._bfs_comp(nr, nc):
+                    return False
+
         return True
 
     def _sn(self):
@@ -314,6 +324,51 @@ class Solver:
                                     boundary.add((nr, nc))
                     res.append((cells, boundary))  # noqa: F841
         return res
+
+    def _bfs_comp(self, r, c):
+        """
+        BFS from a colored cell (r,c), traversing same-color neighbors.
+        If 2+ different unknown neighbors, return True (can't force via bridge).
+        After BFS, if size == total cells of that color → return True.
+        If size < total:
+          - No unknown found → return False (component isolated)
+          - Unknown found → set it to starting color, return _set result.
+        """
+        color = self.g[r][c]
+        if color == self.UNKNOWN:
+            return True
+        total = self._wc if color == self.WHITE else self._bc
+
+        visited = [[False] * self.N for _ in range(self.N)]
+        q = deque([(r, c)])
+        visited[r][c] = True
+        size = 0
+        unknown = None
+
+        while q:
+            cr, cc = q.popleft()
+            size += 1
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = cr + dr, cc + dc
+                if not (0 <= nr < self.N and 0 <= nc < self.N):
+                    continue
+                nv = self.g[nr][nc]
+                if nv == color and not visited[nr][nc]:
+                    visited[nr][nc] = True
+                    q.append((nr, nc))
+                elif nv == self.UNKNOWN:
+                    if unknown is None:
+                        unknown = (nr, nc)
+                    elif unknown != (nr, nc):
+                        return True
+
+        if size == total:
+            return True
+        # size < total: other components exist
+        if unknown is None:
+            return False
+        ur, uc = unknown
+        return self._set(ur, uc, color)
 
     def _conn_expand(self):
         """
@@ -499,7 +554,7 @@ class Solver:
     def _propagate(self):
         """
         Apply deduction rules until stable.
-        (perimeter + conn_expand; all other rules handled by _set incrementally)
+        (perimeter; all other rules handled by _set incrementally)
         """
         while True:
             self._prop_iterations += 1
@@ -508,12 +563,7 @@ class Solver:
             self._timing['_perimeter'] = self._timing.get('_perimeter', 0) + time.time() - t0
             if c1 is None:
                 return False
-            t0 = time.time()
-            c2 = self._conn_expand()
-            self._timing['_conn_expand'] = self._timing.get('_conn_expand', 0) + time.time() - t0
-            if c2 is None:
-                return False
-            if not c1 and not c2:
+            if not c1:
                 break
         return True
 
