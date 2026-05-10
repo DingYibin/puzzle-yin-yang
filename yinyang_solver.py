@@ -375,6 +375,39 @@ class Solver:
 
         return changed
 
+    def _try_both(self):
+        """
+        For each unknown cell, try both colors with full propagation.
+        If one color leads to conflict, the other must be correct.
+        When a cell is forced, set it, propagate, and continue scanning.
+        If both colors conflict, skip and continue.
+        Returns True if any cell was changed, False otherwise.
+        """
+        changed = False
+        for r in range(self.N):
+            for c in range(self.N):
+                if self.g[r][c] != self.UNKNOWN:
+                    continue
+                sp = self._sn()
+                self._set(r, c, self.WHITE)
+                ok_w = self._propagate()
+                self._ba(sp)
+
+                sp = self._sn()
+                self._set(r, c, self.BLACK)
+                ok_b = self._propagate()
+                self._ba(sp)
+
+                if ok_w and not ok_b:
+                    self._set(r, c, self.WHITE)
+                    self._propagate()
+                    changed = True
+                elif not ok_w and ok_b:
+                    self._set(r, c, self.BLACK)
+                    self._propagate()
+                    changed = True
+        return changed
+
     def _propagate(self, verbose=False):
         """Apply deduction rules until stable (p2 + surrounded + corner3 + perimeter + conn_expand)."""
         while True:
@@ -698,6 +731,21 @@ class Solver:
             return False
         if self._done():
             return self._ok()
+        # Try-both: before DFS, try each unknown with both colors.
+        # If one color causes conflict, the other is forced.
+        _try_round = 0
+        while True:
+            _try_round += 1
+            tb = self._try_both()
+            if not tb:
+                break
+            if self.verbose:
+                print(f"\n── Try-Both Round {_try_round} ──")
+                self.pc()
+            if not self._propagate():
+                return False
+            if self._done():
+                return self._ok()
         return self._dfs()
 
     def _dfs(self):
