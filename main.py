@@ -310,7 +310,8 @@ def main():
         solver.ps()
     else:
         print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {elapsed:.3f}s)")
-        save_puzzle(grid, **puzzle_meta)
+        if not loaded_from_file:
+            save_puzzle(grid, **puzzle_meta)
 
     if use_save and ok:
         save_puzzle(grid, **puzzle_meta)
