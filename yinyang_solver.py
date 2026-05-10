@@ -48,7 +48,8 @@ class Solver:
         """
         Rule 1: 2×2 block has 3 same → 4th must be opposite.
         Rule 2: 2×2 block has diagonal pair of C and one corner of O → last must be C.
-        Returns True if any cell was changed, False otherwise.
+        Returns True if any cell was changed, False if no changes.
+        Returns None if a fully-filled 2×2 block has both diagonals same color (invalid).
         """
         changed = False
         while True:
@@ -102,6 +103,11 @@ class Solver:
                             self._set(r, c, v1)
                             hit = True
                             continue
+
+                    # Validity: full 2×2 block with both diagonals same color is invalid
+                    # Covers: all 4 same (e.g. W W / W W) and checkerboard (e.g. W B / B W)
+                    if uk is None and v0 == v3 and v1 == v2:
+                        return None
 
             if not hit:
                 break
@@ -191,16 +197,38 @@ class Solver:
                 return False
         return True
 
+    def _conn_expand(self):
+        """
+        Connectivity expansion: if a color has 2+ components and one component
+        has exactly 1 unknown boundary cell, force that cell to the color.
+        Returns True if any cell was changed, False otherwise.
+        """
+        changed = False
+        for color in (self.WHITE, self.BLACK):
+            comps = self._find_comps(color)
+            if len(comps) < 2:
+                continue
+            for _, boundary in comps:
+                if len(boundary) == 1:
+                    br, bc = next(iter(boundary))
+                    if self.g[br][bc] != color:
+                        self._set(br, bc, color)
+                        changed = True
+        return changed
+
     def _propagate(self, verbose=False):
-        """Apply deduction rules until stable (p2 + surrounded + corner3 + perimeter)."""
+        """Apply deduction rules until stable (p2 + surrounded + corner3 + perimeter + conn_expand)."""
         while True:
             c1 = self._p2()
+            if c1 is None:
+                return False
             c2 = self._surrounded()
             c3 = self._corner3()
             c4 = self._perimeter()
-            if verbose and (c1 or c2 or c3 or c4):
+            c5 = self._conn_expand()
+            if verbose and (c1 or c2 or c3 or c4 or c5):
                 self.pc()
-            if not c1 and not c2 and not c3 and not c4:
+            if not c1 and not c2 and not c3 and not c4 and not c5:
                 break
         return True
 
