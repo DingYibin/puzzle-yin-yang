@@ -28,6 +28,9 @@ uv run python main.py --size 10 --id 5
 uv run python main.py --daily
 uv run python main.py --weekly
 uv run python main.py --monthly
+
+# 从本地文件加载
+uv run python main.py --load examples/example01.json
 ```
 
 ## 求解策略
@@ -68,5 +71,24 @@ DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。
 | 15×15 | < 15ms | 0–8 |
 | 20×20 | < 200ms | 0–136 |
 | 25×25 | ~1.5s | 0–400 |
+| 30×30（每日） | ~300ms | 0 |
+| 35×35（每周） | ~900ms | 0 |
+| 40×40（每月） | ~650ms | 0 |
 
 复杂 20×20（散落线索较多）可能超时。
+
+## 测试用例
+
+`examples/` 目录包含三个典型谜题文件，可通过 `--load` 加载测试：
+
+```bash
+uv run python main.py --load examples/example01.json   # 30×30（每日）
+uv run python main.py --load examples/example02.json   # 35×35（每周）
+uv run python main.py --load examples/example03.json   # 40×40（每月）
+```
+
+| 文件 | 尺寸 | 耗时 |
+|------|------|------|
+| example01 | 30×30 | 300ms |
+| example02 | 35×35 | 905ms |
+| example03 | 40×40 | 652ms |
