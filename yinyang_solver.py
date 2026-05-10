@@ -4,6 +4,9 @@ Yin-Yang Puzzle Solver
 策略: DFS + 2×2 传播 + 桥规则 (连通分量边界检查)
 """
 import time
+import json
+import os
+from datetime import datetime
 from collections import deque
 
 
@@ -806,6 +809,7 @@ class Solver:
         self._st = []
         self._timing = {}
         self._prop_iterations = 0
+        self._initial_grid = [row[:] for row in self.g]
         # Preprocessing: full-grid 2×2 & corner3 deduction
         # (after this, _set handles both incrementally)
         self._p2()
@@ -831,6 +835,9 @@ class Solver:
                 return False
             if self._done():
                 return True
+        if self.verbose:
+            print("Try-both 无法完成求解，自动保存谜题...")
+        self._save_puzzle(self._initial_grid)
         return self._dfs()
 
     def _dfs(self):
@@ -904,6 +911,20 @@ class Solver:
                 t = self._timing.get(rule, 0)
                 print(f"    {rule:20s} {t*1000:9.3f} ms")
         print("=" * 50)
+
+    def _save_puzzle(self, grid):
+        """Save puzzle to puzzles/<timestamp>.json when try_both cannot fully solve."""
+        task = encode(grid)
+        w = len(grid)
+        h = len(grid[0]) if grid else w
+        data = {"task": task, "puzzleWidth": w, "puzzleHeight": h}
+        filename = "puzzle-yin-yang_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".json"
+        os.makedirs("puzzles", exist_ok=True)
+        filepath = os.path.join("puzzles", filename)
+        with open(filepath, "w") as f:
+            json.dump(data, f, ensure_ascii=False)
+        if self.verbose:
+            print(f"谜题已保存到 {filepath}")
 
 
 def decode(t: str, n: int):
