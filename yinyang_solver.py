@@ -824,6 +824,33 @@ def decode(t: str, n: int):
     return [c[r*n:(r+1)*n] for r in range(n)]
 
 
+def encode(grid: list[list[int]]) -> str:
+    """Encode grid back to task string RLE format."""
+    N = len(grid)
+    flat = [grid[r][c] for r in range(N) for c in range(N)]
+    result = []
+    i = 0
+    while i < len(flat):
+        v = flat[i]
+        if v == 1:
+            result.append('W')
+            i += 1
+        elif v == 2:
+            result.append('B')
+            i += 1
+        else:
+            j = i
+            while j < len(flat) and flat[j] == 0:
+                j += 1
+            count = j - i
+            while count > 0:
+                chunk = min(count, 26)
+                result.append(chr(ord('a') + chunk - 1))
+                count -= chunk
+            i = j
+    return ''.join(result)
+
+
 def solve(grid, tl=5.0, vb=True):
     s = Solver(time_limit=tl, verbose=vb)
     s.load(grid)

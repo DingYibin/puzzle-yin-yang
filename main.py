@@ -14,9 +14,11 @@ import sys
 import json
 import re
 import time
+import os
+from datetime import datetime
 import requests
 
-from yinyang_solver import Solver, decode, solve
+from yinyang_solver import Solver, decode, encode, solve
 
 
 # Size parameter mapping (cn.puzzle-yin-yang.com)
@@ -148,6 +150,33 @@ def print_puzzle(grid):
     s.pc()
 
 
+def save_puzzle(grid):
+    """保存谜题到 puzzles/<timestamp>.json"""
+    task = encode(grid)
+    w = len(grid)
+    h = len(grid[0]) if grid else w
+    data = {"task": task, "puzzleWidth": w, "puzzleHeight": h}
+    filename = "puzzle-yin-yang_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".json"
+    os.makedirs("puzzles", exist_ok=True)
+    filepath = os.path.join("puzzles", filename)
+    with open(filepath, "w") as f:
+        json.dump(data, f, ensure_ascii=False)
+    print(f"谜题已保存到 {filepath}")
+    return filepath
+
+
+def load_puzzle(path):
+    """从 JSON 文件加载谜题"""
+    with open(path) as f:
+        data = json.load(f)
+    task = data["task"]
+    w = data["puzzleWidth"]
+    h = data.get("puzzleHeight", w)
+    grid = decode(task, w)
+    print(f"从 {path} 加载 {w}x{h} 谜题")
+    return grid
+
+
 def main():
     # Default: show example
     size = "6"
@@ -160,6 +189,8 @@ def main():
     time_limit = 10.0
     no_color = '--no-color' in sys.argv
     verbose = '--verbose' in sys.argv or '-v' in sys.argv
+    use_save = '--save' in sys.argv
+    load_path = None
 
     # Parse args
     args = sys.argv[1:]
@@ -180,13 +211,19 @@ def main():
             except ValueError:
                 pass
             i += 2
+        elif args[i] == '--load' and i + 1 < len(args):
+            load_path = args[i + 1]
+            i += 2
         else:
             i += 1
 
     grid = None
     N = 0
 
-    if use_daily:
+    if load_path:
+        grid = load_puzzle(load_path)
+        N = len(grid) if grid else 0
+    elif use_daily:
         print("获取每日谜题...")
         grid, N, pid = get_puzzle('daily')
     elif use_weekly:
@@ -259,6 +296,10 @@ def main():
         solver.ps()
     else:
         print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {elapsed:.3f}s)")
+        save_puzzle(grid)
+
+    if use_save and ok:
+        save_puzzle(grid)
 
 
 if __name__ == "__main__":
