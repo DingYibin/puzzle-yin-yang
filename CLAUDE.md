@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Time limit**: `uv run python main.py --time 10.0` (default 10.0s)
 - **Verbose mode**: `uv run python main.py --verbose` (prints grid state at each step)
 - **Animation**: `uv run python main.py --trace` (clean solving steps) / `--trace-full` (with backtracking)
+- **Animation delay**: `uv run python main.py --trace --trace-delay 50` (in milliseconds, default 10ms)
 - **Disable DFS**: `uv run python main.py --no-dfs` (pure deduction only)
 - **Print puzzle only**: `uv run python main.py --size 15 -p`
 - **Sync env**: `uv sync`
@@ -23,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `main.py` — CLI, argument parsing, puzzle fetching from `cn.puzzle-yin-yang.com`
 - `yinyang_solver.py` — Solver engine (`Solver` class + `decode`/`encode` helpers)
 - `pyproject.toml` — Project metadata, Python ≥3.12, depends only on `requests`
-- `puzzles/` — Auto-saved puzzles (when DFS is needed, or on failure)
+- `puzzles/` — Auto-saved puzzles (on failure, or via `--save` flag)
 
 No test framework or tests configured yet.
 
@@ -127,14 +128,10 @@ Puzzles where both colors have many small components (10+ each) are the hardest 
 
 ### Auto-save
 
-Puzzles are automatically saved to `puzzles/` directory as JSON files when:
-- Solver needs DFS to complete (tagged `dfs`)
-- Solver times out / fails (when puzzle wasn't loaded from file and `--save` not set)
-- User passes `--save` flag
+Puzzles are saved to `puzzles/` directory as JSON files only when the `--save` flag is passed
+(no auto-save on failure, and saving is suppressed for puzzles loaded from `--load`).
 
-Auto-save is suppressed when `--save` is already set (avoids duplicate saves).
-
-Saved format: `{"task": "<RLE>", "puzzleWidth": N, "puzzleHeight": N, "need_dfs": bool, "puzzleSize": "...", "puzzleId": "...", "puzzleDate": "..."}`
+Saved format: `{"task": "<RLE>", "puzzleWidth": N, "puzzleHeight": N, "puzzleSize": "...", "puzzleId": "...", "puzzleDate": "..."}`
 
 ### CLI Puzzle Fetching
 
@@ -146,9 +143,10 @@ Saved format: `{"task": "<RLE>", "puzzleWidth": N, "puzzleHeight": N, "need_dfs"
 
 Every `_set()` call records `(r, c, v)` to `_trace`. Undo operations via `_backtrack()` also record `(r, c, 0)` to `_trace`. The assignment stack `_stack` stores only final (non-rolled-back) assignments.
 
-- `animate(full_trace=False)` — replays `_stack` (clean solving steps, no backtracking). Default delay: 0.05s.
-- `animate(full_trace=True)` — replays `_trace` (full solving including backtracking). Default delay: 0.005s.
+- `animate(full_trace=False)` — replays `_stack` (clean solving steps, no backtracking). Default delay: 0.01s.
+- `animate(full_trace=True)` — replays `_trace` (full solving including backtracking). Default delay: 0.01s.
 - CLI `--trace` triggers clean animation; `--trace-full` triggers full backtracking animation
+- `animate(delay=X)` / CLI `--trace-delay <ms>` sets per-step delay in milliseconds
 
 ### Visualization
 

@@ -35,6 +35,9 @@ uv run python main.py --load examples/example01.json
 uv run python main.py --trace
 uv run python main.py --trace-full
 
+# 自定义动画间隔（毫秒，默认 10ms）
+uv run python main.py --trace --trace-delay 50
+
 # 禁用 DFS（纯推理）
 uv run python main.py --no-dfs
 ```
@@ -65,8 +68,6 @@ DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。�
 - `a`-`z` — 1-26 个连续空格
 
 `decode(task, N)` 解码为 `list[list[int]]`。
-
-保存的 JSON 文件增加 `need_dfs` 字段，标明求解时是否触发了 DFS。
 
 ## 文件结构
 

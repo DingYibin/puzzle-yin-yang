@@ -283,7 +283,7 @@ def main():
     solver.pc()
 
     t0 = time.time()
-    ok = solver.solve(save_on_fail=not loaded_from_file and not use_save)
+    ok = solver.solve()
     elapsed = time.time() - t0
 
     if ok:
@@ -296,10 +296,8 @@ def main():
         solver.ps(elapsed=elapsed, show_grid=not animating)
     else:
         print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {elapsed:.3f}s)")
-        if not loaded_from_file:
-            save_puzzle(grid, need_dfs=True, **puzzle_meta)
 
-    if use_save and ok:
+    if use_save and ok and not loaded_from_file:
         save_puzzle(grid, need_dfs=solver.nodes > 0, **puzzle_meta)
 
 

@@ -4,9 +4,6 @@ State: 0=UNKNOWN, 1=WHITE, 2=BLACK
 Strategy: DFS + 2×2 propagation + bridge rule (connectivity boundary check)
 """
 import time
-import json
-import os
-from datetime import datetime
 from collections import deque
 
 
@@ -977,7 +974,7 @@ class Solver:
         return None
 
     # ---- DFS ----
-    def solve(self, save_on_fail=False):
+    def solve(self):
         self.t0 = time.time()
         self.nodes = 0
         self._stack = []
@@ -1013,10 +1010,6 @@ class Solver:
                 self.pc()
             if self._done():
                 return True
-        if save_on_fail:
-            if self.verbose:
-                print("Try-both 无法完成求解，自动保存谜题...")
-            self._save_puzzle(self._initial_grid, tag="dfs")
         if self.dfs_enabled:
             return self._dfs()
         return False
@@ -1099,24 +1092,6 @@ class Solver:
         t = elapsed if elapsed is not None else time.time() - self.t0
         print(f"时间={t:.3f}s 节点={self.nodes} trace={len(self._trace)}")
         print("=" * 50)
-
-    def _save_puzzle(self, grid, tag=""):
-        """Save puzzle to puzzles/<timestamp>.json when try_both cannot fully solve."""
-        task = encode(grid)
-        w = len(grid)
-        h = len(grid[0]) if grid else w
-        data = {"task": task, "puzzleWidth": w, "puzzleHeight": h, "need_dfs": self.nodes > 0}
-        if hasattr(self, '_puzzle_meta'):
-            data.update(self._puzzle_meta)
-        tag_suffix = f"_{tag}" if tag else ""
-        filename = f"puzzle-yin-yang{tag_suffix}_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".json"
-        os.makedirs("puzzles", exist_ok=True)
-        filepath = os.path.join("puzzles", filename)
-        with open(filepath, "w") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        if self.verbose:
-            print(f"谜题已保存到 {filepath}")
-
 
 def decode(t: str, n: int):
     c = []
