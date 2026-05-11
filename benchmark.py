@@ -1,5 +1,7 @@
 """Benchmark solver on example puzzles (10 runs each, average time + trace stats)."""
 import json
+import os
+import platform
 import time
 from pathlib import Path
 
@@ -8,6 +10,21 @@ from yinyang_solver import Solver, decode
 EXAMPLES = sorted(Path("examples").glob("*.json"))
 RUNS = 10
 TIMEOUT = 30.0
+
+# --- system info ---
+def _cpu_model():
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor() or "unknown"
+
+_cpu = _cpu_model()
+print(f"CPU: {_cpu}  ({os.cpu_count() or 0} cores)")
+print()
 
 results = {}
 for path in EXAMPLES:
