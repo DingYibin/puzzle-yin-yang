@@ -78,8 +78,6 @@ DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。�
 
 测试条件：每个尺寸/难度组合取 ID 1–10 共 10 个谜题，求解后取平均（网站谜题，节点数均为 0）。
 
-测试环境：Intel(R) Core(TM) Ultra 9 275HX (24 cores)
-
 | 尺寸 | 难度 | 平均耗时 | 平均 trace |
 |------|------|---------|-----------|
 | 6×6 | easy | 2ms | 25 |
@@ -106,6 +104,8 @@ DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。�
 ## 测试用例
 
 `examples/` 目录包含九个典型谜题文件，可通过 `--load` 加载测试：
+
+测试环境：Intel(R) Core(TM) Ultra 9 275HX (24 cores)
 
 ```bash
 uv run python main.py --load examples/example01.json   # 30×30（每日）
