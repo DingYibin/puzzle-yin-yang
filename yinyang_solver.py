@@ -534,12 +534,12 @@ class Solver:
             if self.g[r][c] != self.UNKNOWN:
                 continue
             sp = self._snap()
-            ok_w = self._set(r, c, self.WHITE)
+            ok_w = self._set(r, c, self.WHITE) and self._check_opposite_connectivity_at(r, c)
             self._backtrack(sp)
 
             if ok_w:
                 sp = self._snap()
-                ok_b = self._set(r, c, self.BLACK)
+                ok_b = self._set(r, c, self.BLACK) and self._check_opposite_connectivity_at(r, c)
                 self._backtrack(sp)
                 if not ok_b:
                     if not self._set(r, c, self.WHITE):
