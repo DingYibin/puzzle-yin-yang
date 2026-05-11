@@ -1051,7 +1051,7 @@ class Solver:
         import time as _time
         import os as _os
         if delay is None:
-            delay = 0.005 if full_trace else 0.02
+            delay = 0.005
         self.g = [row[:] for row in self._initial_grid]
         steps = self._trace if full_trace else self._stack
         total = len(steps)
