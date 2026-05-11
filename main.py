@@ -192,6 +192,7 @@ def main():
     no_dfs = '--no-dfs' in sys.argv
     trace = '--trace' in sys.argv
     trace_full = '--trace-full' in sys.argv
+    trace_delay = None  # ms
     use_save = '--save' in sys.argv
     load_path = None
 
@@ -216,6 +217,12 @@ def main():
             i += 2
         elif args[i] == '--load' and i + 1 < len(args):
             load_path = args[i + 1]
+            i += 2
+        elif args[i] == '--trace-delay' and i + 1 < len(args):
+            try:
+                trace_delay = float(args[i + 1])
+            except ValueError:
+                print("警告: --trace-delay 需要数值参数（毫秒）")
             i += 2
         else:
             i += 1
@@ -280,10 +287,11 @@ def main():
     elapsed = time.time() - t0
 
     if ok:
+        delay_sec = trace_delay / 1000.0 if trace_delay is not None else None
         if trace_full:
-            solver.animate(full_trace=True)
+            solver.animate(full_trace=True, delay=delay_sec)
         elif trace:
-            solver.animate()
+            solver.animate(delay=delay_sec)
         solver.ps(elapsed=elapsed)
     else:
         print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {elapsed:.3f}s)")

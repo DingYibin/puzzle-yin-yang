@@ -1058,7 +1058,7 @@ class Solver:
         _os.system('clear')
         print(f"初始谜题 ({total} 步待求解)")
         self.pc()
-        _time.sleep(1)
+        _time.sleep(3)
         for i, (r, c, v) in enumerate(steps):
             self.g[r][c] = v
             _os.system('clear')
@@ -1066,7 +1066,7 @@ class Solver:
             print(f"求解进度: {remaining}/{total} 步待执行")
             self.pc()
             _time.sleep(delay)
-        _time.sleep(1)
+        _time.sleep(3)
 
     # ---- print ----
     def pc(self):
