@@ -1,7 +1,7 @@
 """
 Yin-Yang Puzzle Solver
-状态: 0=未知, 1=白色, 2=黑色
-策略: DFS + 2×2 传播 + 桥规则 (连通分量边界检查)
+State: 0=UNKNOWN, 1=WHITE, 2=BLACK
+Strategy: DFS + 2×2 propagation + bridge rule (connectivity boundary check)
 """
 import time
 import json
@@ -13,15 +13,17 @@ from collections import deque
 class Solver:
     UNKNOWN, WHITE, BLACK = 0, 1, 2
 
-    def __init__(self, time_limit=5.0, verbose=False):
+    def __init__(self, time_limit=5.0, verbose=False, dfs_enabled=True):
         self.tlim = time_limit
         self.verbose = verbose
+        self.dfs_enabled = dfs_enabled
         self.N = 0
         self.g = []       # grid
         self.fixed = []    # given cells
         self.nodes = 0
         self.t0 = 0
-        self._st = []     # undo stack
+        self._stack = []     # assignment stack (r, c, v)
+        self._trace = []   # solving trace for animation
         self._wc = self._bc = self._uc = 0
 
     def load(self, grid):
@@ -41,19 +43,18 @@ class Solver:
                 if v:
                     self.fixed[r][c] = True
 
-    # ---- undo & incremental 2x2 ----
+    # ---- core assignment & propagation ----
     def _set(self, r, c, v):
         """
-        Set cell (r,c) to v, then check the 4 surrounding 2×2 blocks
-        and 8 surrounding 2×3/3×2 blocks.
-        If a block has 3 of one color + 1 unknown → set the unknown.
-        If a filled 2×2 has both diagonals the same → conflict → return False.
-        Returns True if valid, False if conflict.
+        Set cell (r,c) to v and run all propagation rules.
+        Delegates to _rule_2x2_at, _rule_corner3_at, _rule_surrounded_at,
+        then checks bridge rule (BFS) and perimeter contiguity.
+        Returns False on conflict, True otherwise.
         """
         old = self.g[r][c]
         if old == v:
             return True
-        self._st.append((r, c, old))
+        self._stack.append((r, c, v))
         # update counts
         if old == 0: self._uc -= 1
         elif old == 1: self._wc -= 1
@@ -62,19 +63,47 @@ class Solver:
         elif v == 1: self._wc += 1
         else: self._bc += 1
         self.g[r][c] = v
+        self._trace.append((r, c, v))
 
+        if not self._rule_2x2_at(r, c):
+            return False
+        if not self._rule_corner3_at(r, c):
+            return False
+
+        if not self._rule_surrounded_at(r, c):
+            return False
+
+        # ---- bridge rule checks (component boundary) ----
+        opp_v = self.BLACK if v == self.WHITE else self.WHITE
+        if not self._bfs_comp(r, c):
+            return False
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < self.N and 0 <= nc < self.N and self.g[nr][nc] == opp_v:
+                if not self._bfs_comp(nr, nc):
+                    return False
+
+        # ---- perimeter check (only if cell is on boundary) ----
+        if r == 0 or r == self.N - 1 or c == 0 or c == self.N - 1:
+            p = self._perimeter()
+            if p is None:
+                return False
+
+        return True
+
+    # ---- extracted rule helpers (incremental, called from _set) ----
+    def _rule_2x2_at(self, r, c):
+        """Check 4 surrounding 2×2 blocks for Rules 1 & 2 after setting (r,c).
+        Returns False on conflict, True otherwise."""
         N, g = self.N, self.g
-
-        # ---- 2×2 checks (4 blocks) ----
         for dr in (-1, 0):
             for dc in (-1, 0):
-                tr, tc = r + dr, c + dc  # top-left corner of 2×2 block
+                tr, tc = r + dr, c + dc
                 if not (0 <= tr <= N - 2 and 0 <= tc <= N - 2):
                     continue
                 cells = [(tr, tc), (tr, tc + 1), (tr + 1, tc), (tr + 1, tc + 1)]
                 vv = [g[x][y] for x, y in cells]
 
-                # All filled + invalid diagonal → conflict
                 if all(v != 0 for v in vv) and vv[0] == vv[3] and vv[1] == vv[2]:
                     return False
 
@@ -88,14 +117,12 @@ class Solver:
                     else:
                         bc += 1
 
-                # Rule 1: 3 same → 4th opposite
                 if uk is not None and (wc == 3 or bc == 3):
                     uv, ux, uy = (2, *cells[uk]) if wc == 3 else (1, *cells[uk])
                     if not self._set(ux, uy, uv):
                         return False
                     continue
 
-                # Rule 2: diagonal pair of C + one corner O → last must be C
                 v0, v1, v2, v3 = vv
                 if v0 != 0 and v0 == v3:
                     if v1 != 0 and v1 != v0 and v2 == 0:
@@ -115,8 +142,12 @@ class Solver:
                         if not self._set(cells[0][0], cells[0][1], v1):
                             return False
                         continue
+        return True
 
-        # ---- 2×3 horizontal checks (4 blocks where (r,c) is a corner) ----
+    def _rule_corner3_at(self, r, c):
+        """Check 2×3/3×2 corner Rule 5 after setting (r,c).
+        Returns False on conflict, True otherwise."""
+        N, g = self.N, self.g
         for dr in (-1, 0):
             for dc in (-2, 0):
                 tr, tc = r + dr, c + dc
@@ -140,8 +171,6 @@ class Solver:
                             if not self._set(cr, tc + 1, 1):
                                 return False
                             break
-
-        # ---- 3×2 vertical checks (4 blocks where (r,c) is a corner) ----
         for dr in (-2, 0):
             for dc in (-1, 0):
                 tr, tc = r + dr, c + dc
@@ -165,9 +194,14 @@ class Solver:
                             if not self._set(tr + 1, cc, 1):
                                 return False
                             break
+        return True
 
-        # ---- surrounded checks ----
-        # Case 1: UNKNOWN neighbor — all known neighbors same color?
+    def _rule_surrounded_at(self, r, c):
+        """Check surrounded Rule 4 after setting (r,c).
+        Case 1: UNKNOWN neighbor — all known neighbors same color.
+        Case 2: (r,c) or colored neighbor has exactly 1 unknown, rest opposite.
+        Returns False on conflict, True otherwise."""
+        N, g = self.N, self.g
         for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
             nr, nc = r + dr, c + dc
             if not (0 <= nr < N and 0 <= nc < N) or g[nr][nc] != 0:
@@ -190,7 +224,6 @@ class Solver:
                 if not self._set(nr, nc, color):
                     return False
 
-        # Case 2: (r,c) and its colored neighbors — exactly 1 unknown, rest opposite?
         for cr, cc in [(r, c)] + [(r + dr, c + dc) for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)) if 0 <= r+dr < N and 0 <= c+dc < N and g[r+dr][c+dc] != 0]:
             cv2 = g[cr][cc]
             opp2 = 2 if cv2 == 1 else 1
@@ -213,36 +246,24 @@ class Solver:
                 ur, uc = unk_pos
                 if not self._set(ur, uc, cv2):
                     return False
-
-        # ---- bfs_comp checks ----
-        # opp_v = self.BLACK if v == self.WHITE else self.WHITE
-        # if not self._bfs_comp(r, c):
-        #     return False
-        # for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        #     nr, nc = r + dr, c + dc
-        #     if 0 <= nr < self.N and 0 <= nc < self.N and self.g[nr][nc] == opp_v:
-        #         if not self._bfs_comp(nr, nc):
-        #             return False
-
         return True
 
-    def _sn(self):
-        return len(self._st)
+    def _snap(self):
+        return len(self._stack)
 
-    def _ba(self, n):
-        while len(self._st) > n:
-            r, c, old = self._st.pop()
+    def _backtrack(self, snap_pos):
+        while len(self._stack) > snap_pos:
+            r, c, _ = self._stack.pop()
             cur = self.g[r][c]
             if cur == 0: self._uc -= 1
             elif cur == 1: self._wc -= 1
             else: self._bc -= 1
-            if old == 0: self._uc += 1
-            elif old == 1: self._wc += 1
-            else: self._bc += 1
-            self.g[r][c] = old
+            self._uc += 1
+            self.g[r][c] = 0
+            self._trace.append((r, c, 0))
 
-    # ---- 2x2 preprocessing (rules 1 & 2) ----
-    def _p2(self):
+    # ---- 2x2 full-grid preprocessing ----
+    def _preprocess_2x2(self):
         """
         Full-grid 2×2 deduction scan (runs once during preprocessing).
         Rule 1: 2×2 block has 3 same → 4th must be opposite.
@@ -269,68 +290,44 @@ class Solver:
                 if uk is not None and (wc == 3 or bc == 3):
                     x, y = cells[uk]
                     nv = self.BLACK if wc == 3 else self.WHITE
-                    self._set(x, y, nv)
+                    if not self._set(x, y, nv):
+                        return None
                     changed = True
                     continue
 
                 v0, v1, v2, v3 = vals
                 if v0 != self.UNKNOWN and v0 == v3:
                     if v1 != self.UNKNOWN and v1 != v0 and v2 == self.UNKNOWN:
-                        self._set(r + 1, c, v0)
+                        if not self._set(r + 1, c, v0):
+                            return None
                         changed = True
                         continue
                     if v2 != self.UNKNOWN and v2 != v0 and v1 == self.UNKNOWN:
-                        self._set(r, c + 1, v0)
+                        if not self._set(r, c + 1, v0):
+                            return None
                         changed = True
                         continue
                 if v1 != self.UNKNOWN and v1 == v2:
                     if v0 != self.UNKNOWN and v0 != v1 and v3 == self.UNKNOWN:
-                        self._set(r + 1, c + 1, v1)
+                        if not self._set(r + 1, c + 1, v1):
+                            return None
                         changed = True
                         continue
                     if v3 != self.UNKNOWN and v3 != v1 and v0 == self.UNKNOWN:
-                        self._set(r, c, v1)
+                        if not self._set(r, c, v1):
+                            return None
                         changed = True
                         continue
         return changed
 
     # ---- component analysis & bridge rule ----
-    def _find_comps(self, color):
-        """return [(cell_count, boundary_set)]"""
-        res = []
-        visited = [[0]*self.N for _ in range(self.N)]
-        vmark = 0
-        for r in range(self.N):
-            for c in range(self.N):
-                if self.g[r][c] == color and not visited[r][c]:
-                    vmark += 1
-                    mk = vmark
-                    boundary = set()
-                    q = deque([(r,c)])
-                    visited[r][c] = mk
-                    cells = 0
-                    while q:
-                        cr, cc = q.popleft()
-                        cells += 1
-                        for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
-                            nr, nc = cr+dr, cc+dc
-                            if 0 <= nr < self.N and 0 <= nc < self.N:
-                                if self.g[nr][nc] == color and visited[nr][nc] != mk:
-                                    visited[nr][nc] = mk
-                                    q.append((nr, nc))
-                                elif self.g[nr][nc] == self.UNKNOWN:
-                                    boundary.add((nr, nc))
-                    res.append((cells, boundary))  # noqa: F841
-        return res
-
     def _bfs_comp(self, r, c):
         """
-        BFS from a colored cell (r,c), traversing same-color neighbors.
-        If 2+ different unknown neighbors, return True (can't force via bridge).
-        After BFS, if size == total cells of that color → return True.
-        If size < total:
-          - No unknown found → return False (component isolated)
-          - Unknown found → set it to starting color, return _set result.
+        Bridge rule: BFS from colored cell (r,c) through same-color component.
+        If component has exactly 1 unknown boundary cell, force it.
+        - 0 unknown boundary cells with other components existing → conflict
+        - 2+ unknown boundary cells → can't force, return True
+        - All same-color cells in one component already → return True
         """
         color = self.g[r][c]
         if color == self.UNKNOWN:
@@ -368,25 +365,24 @@ class Solver:
         ur, uc = unknown
         return self._set(ur, uc, color)
 
-    def _conn_expand(self):
+    def _connectivity_expand(self):
         """
-        Connectivity expansion via Union-Find with per-root unknown-neighbor sets.
+        Bridge rule via Union-Find with per-root unknown-neighbor sets.
 
-        au — adjacent UNKNOWN cell indices per root
-
-        If a color has 2+ components and one component has exactly 1 unknown
-        boundary cell, force that cell to the component's color.
+        For each color with 2+ components, examine each component's unknown
+        neighbor boundary count:
+        - 0 unknown neighbors → conflict (component can never connect)
+        - 1 unknown neighbor → force it to the component's color
         Returns True if any cell was changed, False if no changes.
-        Returns None if a color has 2+ components but one has 0 unknown
-        boundary cells (impossible to connect, current state is invalid).
+        Returns None on conflict.
         """
         N = self.N
         g = self.g
         S = N * N
         parent = list(range(S))
 
-        # Per-root unknown neighbor sets (lazy: None until first add)
-        au = [None] * S
+        # adj_unknown[r] = set of unknown neighbor indices for root component r
+        adj_unknown = [None] * S
 
         def ensure(arr, idx):
             if arr[idx] is None:
@@ -404,12 +400,12 @@ class Solver:
             if rx == ry:
                 return
             parent[ry] = rx
-            if au[ry] is not None:
-                if au[rx] is None:
-                    au[rx] = au[ry]
+            if adj_unknown[ry] is not None:
+                if adj_unknown[rx] is None:
+                    adj_unknown[rx] = adj_unknown[ry]
                 else:
-                    au[rx] |= au[ry]
-                au[ry] = None
+                    adj_unknown[rx] |= adj_unknown[ry]
+                adj_unknown[ry] = None
 
         # Single pass: union + build unknown neighbor sets
         for r in range(N):
@@ -424,13 +420,13 @@ class Solver:
                             union(idx, nidx)
                     elif v and not nv:
                         root = find(idx)
-                        ensure(au, root).add(nidx)
+                        ensure(adj_unknown, root).add(nidx)
                     elif not v and nv:
                         nroot = find(nidx)
-                        ensure(au, nroot).add(idx)
+                        ensure(adj_unknown, nroot).add(idx)
                     else:  # both unknown
-                        ensure(au, idx).add(nidx)
-                        ensure(au, nidx).add(idx)
+                        ensure(adj_unknown, idx).add(nidx)
+                        ensure(adj_unknown, nidx).add(idx)
                 if r + 1 < N:
                     nv = g[r + 1][c]
                     nidx = (r + 1) * N + c
@@ -439,13 +435,13 @@ class Solver:
                             union(idx, nidx)
                     elif v and not nv:
                         root = find(idx)
-                        ensure(au, root).add(nidx)
+                        ensure(adj_unknown, root).add(nidx)
                     elif not v and nv:
                         nroot = find(nidx)
-                        ensure(au, nroot).add(idx)
+                        ensure(adj_unknown, nroot).add(idx)
                     else:  # both unknown
-                        ensure(au, idx).add(nidx)
-                        ensure(au, nidx).add(idx)
+                        ensure(adj_unknown, idx).add(nidx)
+                        ensure(adj_unknown, nidx).add(idx)
 
         # Collect roots per color
         white_roots = set()
@@ -468,12 +464,12 @@ class Solver:
                 if 0 <= nr < N and 0 <= nc < N:
                     nidx = nr * N + nc
                     if g[nr][nc] == 0:
-                        if au[nidx] is not None:
-                            au[nidx].discard(cell)
+                        if adj_unknown[nidx] is not None:
+                            adj_unknown[nidx].discard(cell)
                     else:
                         nroot = find(nidx)
-                        if au[nroot] is not None:
-                            au[nroot].discard(cell)
+                        if adj_unknown[nroot] is not None:
+                            adj_unknown[nroot].discard(cell)
             # Add new unknown neighbors from this cell
             my_root = find(cell)
             for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
@@ -481,7 +477,7 @@ class Solver:
                 if not (0 <= nr < N and 0 <= nc < N):
                     continue
                 if g[nr][nc] == 0:
-                    ensure(au, my_root).add(nr * N + nc)
+                    ensure(adj_unknown, my_root).add(nr * N + nc)
                 elif g[nr][nc] == color:
                     if find(nr * N + nc) != my_root:
                         roots.discard(my_root)
@@ -493,11 +489,11 @@ class Solver:
                     if find(root) != root:
                         roots.discard(root)
                         continue
-                    b = len(au[root]) if au[root] else 0
+                    b = len(adj_unknown[root]) if adj_unknown[root] else 0
                     if b == 0:
                         return None
                     if b == 1:
-                        cell = next(iter(au[root]))
+                        cell = next(iter(adj_unknown[root]))
                         ur, uc = divmod(cell, N)
                         if g[ur][uc] != color:
                             if not self._set(ur, uc, color):
@@ -511,64 +507,80 @@ class Solver:
 
     def _try_both(self):
         """
-        For each unknown cell, try both colors with full propagation.
-        If exactly one color is viable, force it.
-        If both conflict, the puzzle is unsolvable → return False.
-        If both OK, skip and continue.
+        For each unknown cell, try WHITE with full propagation.
+        If WHITE fails → BLACK is forced (or unsolvable if BLACK also fails).
+        If WHITE succeeds, try BLACK: if BLACK fails → WHITE is forced.
+        If both OK → skip.
         Returns True if any cell was changed, False otherwise.
         """
         changed = False
-        for r in range(self.N):
-            for c in range(self.N):
-                if self.g[r][c] != self.UNKNOWN:
+        N = self.N
+        g = self.g
+        center = (N - 1) / 2
+        cells = []
+        for r in range(N):
+            for c in range(N):
+                if g[r][c] != self.UNKNOWN:
                     continue
-                sp = self._sn()
-                ok_w = self._set(r, c, self.WHITE) and self._propagate()
-                self._ba(sp)
+                uk_cnt = 0
+                for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < N and 0 <= nc < N and g[nr][nc] == self.UNKNOWN:
+                        uk_cnt += 1
+                dist = abs(r - center) + abs(c - center)
+                cells.append((uk_cnt, dist, r, c))
+        cells.sort()
+        for _, _, r, c in cells:
+            if self.g[r][c] != self.UNKNOWN:
+                continue
+            sp = self._snap()
+            ok_w = self._set(r, c, self.WHITE)
+            self._backtrack(sp)
 
-                sp = self._sn()
-                ok_b = self._set(r, c, self.BLACK) and self._propagate()
-                self._ba(sp)
-
-                if ok_w and not ok_b:
-                    if not self._set(r, c, self.WHITE) or not self._propagate():
+            if ok_w:
+                sp = self._snap()
+                ok_b = self._set(r, c, self.BLACK)
+                self._backtrack(sp)
+                if not ok_b:
+                    if not self._set(r, c, self.WHITE):
+                        if self.verbose:
+                            print(f"[try_both] force ({r},{c}) = WHITE 失败")
+                            self.pc()
                         return False
                     changed = True
                     if self.verbose:
                         print(f"[try_both] force ({r},{c}) = WHITE")
                         self.pc()
-                elif not ok_w and ok_b:
-                    if not self._set(r, c, self.BLACK) or not self._propagate():
-                        return False
-                    changed = True
+            else:
+                # WHITE failed → BLACK forced
+                if not self._set(r, c, self.BLACK):
                     if self.verbose:
-                        print(f"[try_both] force ({r},{c}) = BLACK")
+                        print(f"[try_both] force ({r},{c}) = BLACK 失败")
                         self.pc()
-                elif not ok_w and not ok_b:
                     return False
-                # both OK → skip
+                changed = True
+                if self.verbose:
+                    print(f"[try_both] force ({r},{c}) = BLACK")
+                    self.pc()
         return changed
 
     def _propagate(self):
-        """Apply perimeter + conn_expand until stable. Returns False on conflict."""
+        """Apply perimeter until stable. Returns False on conflict."""
         while True:
             c1 = self._perimeter()
             if c1 is None:
                 return False
-            c2 = self._conn_expand()
-            if c2 is None:
-                return False
-            if not c1 and not c2:
+            if not c1:
                 break
         return True
 
     # ---- surrounded & single unknown neighbor (rule 4) ----
     def _surrounded(self):
         """
-        Two cases:
-        1. UNKNOWN cell: all neighbors known and same color → set cell.
-        2. COLORED cell: exactly 1 unknown neighbor, all other known
-           neighbors opposite → set that unknown neighbor.
+        Full-grid surrounded deduction (Rule 4).
+        Case 1 — UNKNOWN cell: all known neighbors same color → set it.
+        Case 2 — COLORED cell: exactly 1 unknown neighbor, rest opposite → set unknown.
+        Returns True if any cell was changed, None on conflict.
         """
         changed = False
         for r in range(self.N):
@@ -721,6 +733,14 @@ class Solver:
         if self.WHITE not in has or self.BLACK not in has:
             return changed
 
+        # Check perimeter contiguity: colors must form at most 2 arcs (2 transitions)
+        transitions = 0
+        for k in range(len(colored)):
+            if colored[k][1] != colored[(k + 1) % len(colored)][1]:
+                transitions += 1
+        if transitions > 2:
+            return None
+
         for color in (self.WHITE, self.BLACK):
             opp = self.BLACK if color == self.WHITE else self.WHITE
             idxs = [i for i, v in colored if v == color]
@@ -751,8 +771,9 @@ class Solver:
     # ---- connectivity check (union-find) ----
     def _ok(self):
         """
-        Check connectivity via Union-Find: adjacent same-color cells are merged.
-        Both colors must each form at most 1 connected component.
+        Final validation: connectivity via Union-Find.
+        Each color must form at most 1 connected component.
+        Also verifies no 2×2 block is all the same color.
         """
         N = self.N
         parent = list(range(N * N))
@@ -817,78 +838,45 @@ class Solver:
 
     # ---- cell selection ----
     def _pick(self):
-        """
-        Pick from smallest multi-component boundary; prefer cells that
-        are adjacent to multiple different components (bridge cells).
-        """
-        # Precompute all components for both colors
-        w_comps = self._find_comps(self.WHITE)
-        b_comps = self._find_comps(self.BLACK)
-
-        best, best_sc = None, -1
-
-        # Phase 1: multi-component colors — bridge score
-        for _, comps in ((self.WHITE, w_comps), (self.BLACK, b_comps)):
-            if len(comps) < 2:
-                continue
-            # Map unknown cells to component sets they border
-            cell_to_comps = {}
-            for ci, (_, boundary) in enumerate(comps):
-                for br, bc in boundary:
-                    cell_to_comps.setdefault((br, bc), set()).add(ci)
-
-            for (br, bc), comp_set in cell_to_comps.items():
-                n_comps = len(comp_set)
-                sc = n_comps * 5000
-                for ci in comp_set:
-                    sc += 2000 - min(len(comps[ci][1]), 10) * 100
-                if sc > best_sc:
-                    best_sc = sc
-                    best = (br, bc)
-
-        if best:
+        """Pick unknown cell closest to the last assigned cell (Manhattan distance).
+        Falls back to row-major first unknown when _stack is empty."""
+        N, g = self.N, self.g
+        if self._stack:
+            pr, pc, _ = self._stack[-1]
+            best, best_dist = None, N * N
+            for r in range(N):
+                for c in range(N):
+                    if g[r][c] == self.UNKNOWN:
+                        d = abs(r - pr) + abs(c - pc)
+                        if d < best_dist:
+                            best_dist = d
+                            best = (r, c)
             return best
-
-        # Phase 2: single-component colors — most constrained boundary
-        for comps in (w_comps, b_comps):
-            for _, boundary in comps:
-                for br, bc in boundary:
-                    sc = sum(1 for dr, dc in ((-1,0),(1,0),(0,-1),(0,1))
-                            if 0 <= br+dr < self.N and 0 <= bc+dc < self.N and self.g[br+dr][bc+dc])
-                    sc = sc * 100
-                    if sc > best_sc:
-                        best_sc = sc
-                        best = (br, bc)
-
-        if best:
-            return best
-
-        # Phase 3: no components at all — most constrained unknown
-        for r in range(self.N):
-            for c in range(self.N):
-                if self.g[r][c] == self.UNKNOWN:
-                    sc = sum(1 for dr, dc in ((-1,0),(1,0),(0,-1),(0,1))
-                            if 0 <= r+dr < self.N and 0 <= c+dc < self.N)
-                    if sc > best_sc:
-                        best_sc = sc
-                        best = (r, c)
-        return best
+        # First call — row-major first unknown
+        for r in range(N):
+            for c in range(N):
+                if g[r][c] == self.UNKNOWN:
+                    return (r, c)
+        return None
 
     # ---- DFS ----
     def solve(self, save_on_fail=False):
         self.t0 = time.time()
         self.nodes = 0
-        self._st = []
+        self._stack = []
+        self._trace = []
         self._initial_grid = [row[:] for row in self.g]
-        # Preprocessing: full-grid 2×2 & corner3 deduction
-        # (after this, _set handles both incrementally)
-        self._p2()
-        self._corner3()
-        self._surrounded()
-        self._conn_expand()
-        if self._done():
-            return True
-        if not self._propagate():
+        # Preprocessing: perimeter → 2×2 → corner3 → surrounded → connectivity_expand
+        # Then try_both forced-cell loop, then DFS if still unsolved.
+        if self._perimeter() is None:
+            return False
+        if self._preprocess_2x2() is None:
+            return False
+        if self._corner3() is None:
+            return False
+        if self._surrounded() is None:
+            return False
+        if self._connectivity_expand() is None:
             return False
         if self._done():
             return True
@@ -906,15 +894,15 @@ class Solver:
             if self.verbose:
                 print(f"\n── Try-Both Round {_try_round} ──")
                 self.pc()
-            if not self._propagate():
-                return False
             if self._done():
                 return True
         if save_on_fail:
             if self.verbose:
                 print("Try-both 无法完成求解，自动保存谜题...")
             self._save_puzzle(self._initial_grid, tag="dfs")
-        return self._dfs()
+        if self.dfs_enabled:
+            return self._dfs()
+        return False
 
     def _dfs(self):
         if time.time() - self.t0 > self.tlim:
@@ -924,38 +912,39 @@ class Solver:
         if cell is None:
             return self._ok()
         r, c = cell
-        # forbid colors creating 2x2
-        wok = bok = True
-        for dr in (-1, 0):
-            for dc in (-1, 0):
-                cr, cc = r+dr, c+dc
-                if 0 <= cr < self.N-1 and 0 <= cc < self.N-1:
-                    o = [(x,y) for x,y in [(cr,cc),(cr,cc+1),(cr+1,cc),(cr+1,cc+1)] if (x,y) != (r,c)]
-                    if all(self.g[x][y] == self.WHITE for x,y in o): wok = False
-                    if all(self.g[x][y] == self.BLACK for x,y in o): bok = False
         wc = bc = 0
         for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
             nr, nc = r+dr, c+dc
             if 0 <= nr < self.N and 0 <= nc < self.N:
                 if self.g[nr][nc] == self.WHITE: wc += 1
                 elif self.g[nr][nc] == self.BLACK: bc += 1
-        order = []
-        if wok and bok:
-            order = [self.WHITE, self.BLACK] if wc >= bc else [self.BLACK, self.WHITE]
-        elif wok: order = [self.WHITE]
-        elif bok: order = [self.BLACK]
-        else: return False
+        order = [self.WHITE, self.BLACK] if wc >= bc else [self.BLACK, self.WHITE]
         for co in order:
-            sp = self._sn()
-            self._set(r, c, co)
-            if self._propagate():
+            sp = self._snap()
+            if self._set(r, c, co):
                 if self.verbose:
                     print(f"[DFS] node {self.nodes}: try ({r},{c}) = {'WHITE' if co == 1 else 'BLACK'}")
                     self.pc()
                 if self._dfs():
                     return True
-            self._ba(sp)
+            self._backtrack(sp)
         return False
+
+    # ---- animation ----
+    def animate(self, delay=0.02, full_trace=False):
+        """Animate solving process. If full_trace, show backtracking; otherwise only final assignments."""
+        import time as _time
+        import os as _os
+        self.g = [row[:] for row in self._initial_grid]
+        steps = self._trace if full_trace else self._stack
+        total = len(steps)
+        for i, (r, c, v) in enumerate(steps):
+            self.g[r][c] = v
+            _os.system('clear')
+            remaining = total - i - 1
+            print(f"求解进度: {remaining}/{total} 步待执行")
+            self.pc()
+            _time.sleep(delay)
 
     # ---- print ----
     def pc(self):
@@ -973,7 +962,7 @@ class Solver:
             print(s)
         print("   " + "─" * (cw * self.N))
 
-    def ps(self):
+    def ps(self, elapsed=None):
         RE = "\033[0m"; BO = "\033[1m"
         print(f"\n{BO}结果{RE}")
         print("=" * 50)
@@ -983,7 +972,8 @@ class Solver:
         print(f"○白={wc} ●黑={bc} 总={self.N*self.N}")
         ok = self._ok()
         print(f"验证: {'✓' if ok else '✗'}")
-        print(f"时间={time.time()-self.t0:.3f}s 节点={self.nodes}")
+        t = elapsed if elapsed is not None else time.time() - self.t0
+        print(f"时间={t:.3f}s 节点={self.nodes} trace={len(self._trace)}")
         print("=" * 50)
 
     def _save_puzzle(self, grid, tag=""):
@@ -991,7 +981,7 @@ class Solver:
         task = encode(grid)
         w = len(grid)
         h = len(grid[0]) if grid else w
-        data = {"task": task, "puzzleWidth": w, "puzzleHeight": h}
+        data = {"task": task, "puzzleWidth": w, "puzzleHeight": h, "need_dfs": self.nodes > 0}
         if hasattr(self, '_puzzle_meta'):
             data.update(self._puzzle_meta)
         tag_suffix = f"_{tag}" if tag else ""

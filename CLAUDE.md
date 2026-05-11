@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-- **Run**: `uv run python main.py` (ships with a 6×6 example)
-- **Fetch + solve**: `uv run python main.py --fetch` (random puzzle, default 6×6)
-- **Fetch by size**: `uv run python main.py --size 10 --fetch` (sizes: 6, 10, 15, 20, 25; difficulty suffix e/n/h)
-- **Fetch by puzzle ID**: `uv run python main.py --size 10 --id 5`
+- **Run**: `uv run python main.py` (fetches a random 6×6 puzzle)
+- **By size**: `uv run python main.py --size 10` (sizes: 6, 10, 15, 20, 25; difficulty suffix e/n/h)
+- **By puzzle ID**: `uv run python main.py --size 10 --id 5`
 - **Daily/weekly/monthly**: `uv run python main.py --daily` / `--weekly` / `--monthly`
 - **Load from JSON**: `uv run python main.py --load puzzles/file.json`
-- **Save puzzle**: `uv run python main.py --fetch --save`
+- **Save puzzle**: `uv run python main.py --save`
 - **Time limit**: `uv run python main.py --time 10.0` (default 10.0s)
 - **Verbose mode**: `uv run python main.py --verbose` (prints grid state at each step)
+- **Animation**: `uv run python main.py --trace` (clean solving steps) / `--trace-full` (with backtracking)
+- **Disable DFS**: `uv run python main.py --no-dfs` (pure deduction only)
 - **Print puzzle only**: `uv run python main.py --size 15 -p`
 - **Sync env**: `uv sync`
 
@@ -29,44 +30,47 @@ No test framework or tests configured yet.
 
 ### Solver Algorithm Flow (`Solver` in `yinyang_solver.py`)
 
-**State representation**: 0=UNKNOWN, 1=WHITE, 2=BLACK. Undo stack (list of `(r,c,old_val)`) instead of deepcopy — `_sn()` / `_ba()` saves/restores stack position. Counters `_wc`/`_bc`/`_uc` maintained incrementally by `_set()` and `_ba()`.
+**State representation**: 0=UNKNOWN, 1=WHITE, 2=BLACK. Assignment stack `_stack` (list of `(r,c,v)`) instead of deepcopy — `_snap()` / `_backtrack()` saves/restores stack position. Counters `_wc`/`_bc`/`_uc` maintained incrementally by `_set()` and `_backtrack()`.
 
 **`solve()` → preprocessing → try_both loop → `_dfs()` → `_ok()`**
 
-**Preprocessing** (in order):
-1. `_p2()` — Full-grid 2×2 deduction (Rules 1 & 2)
-2. `_corner3()` — 2×3/3×2 corner deduction (Rule 5)
-3. `_surrounded()` — Surrounded cell / single unknown exit (Rule 4)
-4. `_conn_expand()` — Union-Find bridge rule (connectivity-driven forcing)
-5. `_propagate()` — Alternates `_perimeter()` and `_conn_expand()` until stable
+**Preprocessing** (in order, each returns None on conflict → `solve()` returns False):
+1. `_perimeter()` — Perimeter contiguity (Rule 3)
+2. `_preprocess_2x2()` — Full-grid 2×2 deduction (Rules 1 & 2)
+3. `_corner3()` — 2×3/3×2 corner deduction (Rule 5)
+4. `_surrounded()` — Surrounded cell / single unknown exit (Rule 4)
+5. `_connectivity_expand()` — Union-Find bridge rule (connectivity-driven forcing)
 
-**Try-both** (`_try_both`): For each unknown cell, try WHITE then BLACK with full propagation. If exactly one color works, force it. If both conflict → unsolvable. Loops until no more forced cells.
+**Try-both** (`_try_both`): For each unknown cell (sorted by fewest unknown neighbors first, then distance to center), try WHITE. If WHITE fails → BLACK is forced (or unsolvable). If WHITE succeeds, try BLACK: if BLACK fails → WHITE is forced. Loops until no more forced cells. Relies on `_set()` for all propagation — no separate `_propagate()` call.
+
+DFS can be disabled via `dfs_enabled=False` / `--no-dfs` flag.
 
 **DFS** (`_dfs`): Picks a cell via `_pick()`, tries WHITE/BLACK (ordered by neighbor majority), recurses. On timeout → False. On leaf (`_uc == 0`) → `_ok()` verifies full connectivity.
 
 ### Propagation Rules
 
-- **Rule 1 — 2×2 same-color** (`_p2` → `_set`): If any 2×2 block has 3 cells of the same color, the 4th is forced to the opposite color.
-- **Rule 2 — 2×2 diagonal** (`_p2` → `_set`): If a 2×2 block has a diagonal pair of color C and one corner of color O, the last corner must be C.
+- **Rule 1 — 2×2 same-color** (`_preprocess_2x2` / `_rule_2x2_at`): If any 2×2 block has 3 cells of the same color, the 4th is forced to the opposite color.
+- **Rule 2 — 2×2 diagonal** (`_preprocess_2x2` / `_rule_2x2_at`): If a 2×2 block has a diagonal pair of color C and one corner of color O, the last corner must be C.
 - **Rule 3 — Perimeter contiguity** (`_perimeter`): On the outer boundary, same-color cells form contiguous arcs. If two cells of color C are on the perimeter with no opposite color on the arc between them, all unknowns on that arc are forced to C.
 - **Rule 4 — Surrounded & single exit** (`_surrounded`, also in `_set`): (a) If an unknown cell has all known neighbors of the same color, set it to that color. (b) If a colored cell has exactly 1 unknown neighbor and all other known neighbors are the opposite color, that unknown must match the colored cell.
 - **Rule 5 — 2×3/3×2 corner** (`_corner3`, also in `_set`): In a 2×3 (horizontal) or 3×2 (vertical) area, if the 4 corners have 3 of one color and 1 of the other color, the edge middle adjacent to the minority corner must be the minority color.
-- **Bridge rule** (`_conn_expand`): Union-Find based. If a color has 2+ connected components and a component has exactly 1 unknown boundary cell, force that cell to the component's color. 0 boundary → conflict. Includes fast `_absorb()` to merge components after forcing.
+- **Bridge rule** (`_connectivity_expand`): Union-Find based. If a color has 2+ connected components and a component has exactly 1 unknown boundary cell, force that cell to the component's color. 0 boundary → conflict. Includes fast `_absorb()` to merge components after forcing.
 - **Connectivity check** (`_ok`): Union-Find per color at leaf nodes. Also checks no 2×2 block is all same color.
 
 ### Incremental Propagation in `_set()`
 
-`_set()` is the core assignment function. Every cell set triggers checks on:
-- 4 surrounding 2×2 blocks (Rules 1 & 2 — conflict on diagonal same-color fill)
-- 4 surrounding 2×3 horizontal blocks (Rule 5 edge middle)
-- 4 surrounding 3×2 vertical blocks (Rule 5 edge middle)
-- Surrounded checks (Rule 4) on the set cell and its unknown neighbors
+`_set()` is the core assignment function. Every cell set triggers:
+- `_rule_2x2_at()` — 4 surrounding 2×2 blocks (Rules 1 & 2)
+- `_rule_corner3_at()` — 4 surrounding 2×3 + 4 surrounding 3×2 blocks (Rule 5)
+- `_rule_surrounded_at()` — Surrounded checks (Rule 4)
+- `_bfs_comp()` — Bridge checks on the set cell and its opposite-color neighbors
+- `_perimeter()` — Contiguity check if the cell is on the outer boundary
 
-Previously also ran `_bfs_comp()` per set — now commented out, replaced by `_conn_expand()` in the propagation loop.
+No separate `_propagate()` loop — all propagation is recursive via `_set()`.
 
-### Union-Find `_conn_expand()` (Bridge Rule)
+### Union-Find `_connectivity_expand()` (Bridge Rule)
 
-Single-pass UF building per-root unknown-neighbor sets (`au`). For each color with 2+ roots: if a root has 0 unknown neighbors → conflict; exactly 1 → force it via `_absorb()` (updates neighbor sets incrementally). `_absorb()` removes the cell from all neighbors' unknown sets and merges it into an adjacent same-color component.
+Single-pass UF building per-root unknown-neighbor sets (`adj_unknown`). For each color with 2+ roots: if a root has 0 unknown neighbors → conflict; exactly 1 → force it via `_absorb()` (updates neighbor sets incrementally). `_absorb()` removes the cell from all neighbors' unknown sets and merges it into an adjacent same-color component.
 
 ### Cell Selection (`_pick`)
 
@@ -116,16 +120,26 @@ Puzzles where both colors have many small components (10+ each) are the hardest 
 
 Puzzles are automatically saved to `puzzles/` directory as JSON files when:
 - Solver needs DFS to complete (tagged `dfs`)
-- Solver times out / fails (when puzzle wasn't loaded from file)
+- Solver times out / fails (when puzzle wasn't loaded from file and `--save` not set)
 - User passes `--save` flag
 
-Saved format: `{"task": "<RLE>", "puzzleWidth": N, "puzzleHeight": N, "puzzleSize": "...", "puzzleId": "...", "puzzleDate": "..."}`
+Auto-save is suppressed when `--save` is already set (avoids duplicate saves).
+
+Saved format: `{"task": "<RLE>", "puzzleWidth": N, "puzzleHeight": N, "need_dfs": bool, "puzzleSize": "...", "puzzleId": "...", "puzzleDate": "..."}`
 
 ### CLI Puzzle Fetching
 
 - `GET` requests for random/daily puzzles — parses `task`, `puzzleWidth`, `puzzleID`, and selected date from HTML
 - `POST` requests for specific puzzle IDs — sends `specific=1&size=X&specid=Y` form data
 - Headers include Chinese locale (`zh-CN,zh;q=0.9`) for compatibility
+
+### Trace & Animation
+
+Every `_set()` call records `(r, c, v)` to `_trace`. Undo operations via `_backtrack()` also record `(r, c, 0)` to `_trace`. The assignment stack `_stack` stores only final (non-rolled-back) assignments.
+
+- `animate(full_trace=False)` — replays `_stack` (clean solving steps, no backtracking)
+- `animate(full_trace=True)` — replays `_trace` (full solving including backtracking)
+- CLI `--trace` triggers clean animation; `--trace-full` triggers full backtracking animation
 
 ### Visualization
 

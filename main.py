@@ -1,13 +1,13 @@
 """
-Yin-Yang Puzzle Solver - CLI
+Yin-Yang Puzzle Solver — CLI
 
 Usage:
-    uv run python main.py                     # 示例谜题 (6x6)
-    uv run python main.py --fetch             # 随机谜题
-    uv run python main.py --size 10           # 指定大小
-    uv run python main.py --id 5              # 指定编号
-    uv run python main.py --daily             # 每日谜题
-    uv run python main.py -p 10x10            # 直接打印指定谜题
+    uv run python main.py                     # Random 6×6 puzzle
+    uv run python main.py --size 10           # Specify size (6, 10, 15, 20, 25, 30, 35, 40)
+    uv run python main.py --id 5              # Puzzle by ID
+    uv run python main.py --daily             # Daily puzzle
+    uv run python main.py --load path.json    # Load from file
+    uv run python main.py -p                  # Print puzzle only (no solve)
 """
 
 import sys
@@ -105,30 +105,27 @@ def fetch_by_id(size_param: str, puzzle_id: int) -> tuple[str | None, int, int, 
         "Content-Type": "application/x-www-form-urlencoded",
     }
     try:
-        r = requests.post(
+        s = requests.Session()
+        r = s.post(
             "https://cn.puzzle-yin-yang.com/",
             headers=headers,
             data=f"specific=1&size={size_param}&specid={puzzle_id}",
             timeout=30,
         )
-        r.raise_for_status()
         html = r.text
-
         task_m = re.search(r"var\s+task\s*=\s*'([^']+)'", html)
-        task = task_m.group(1) if task_m else None
-
         w_m = re.search(r'puzzleWidth\s*:\s*(\d+)', html)
-        h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
-        width = int(w_m.group(1)) if w_m else 0
-        height = int(h_m.group(1)) if h_m else 0
-
-        pid = None
-        id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
-        if id_m:
-            pid = id_m.group(1)
-
-        return task, width, height, pid
-
+        if task_m and w_m:
+            task = task_m.group(1)
+            w = int(w_m.group(1))
+            h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
+            h = int(h_m.group(1)) if h_m else w
+            pid = None
+            id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
+            if id_m:
+                pid = id_m.group(1)
+            return task, w, h, pid
+        return None, 0, 0, None
     except Exception as e:
         print(f"获取谜题失败: {e}")
         return None, 0, 0, None
@@ -183,9 +180,7 @@ def load_puzzle(path):
 
 
 def main():
-    # Default: show example
     size = "6"
-    use_fetch = '--fetch' in sys.argv or '-f' in sys.argv
     use_daily = '--daily' in sys.argv
     use_weekly = '--weekly' in sys.argv
     use_monthly = '--monthly' in sys.argv
@@ -194,6 +189,9 @@ def main():
     time_limit = 10.0
     no_color = '--no-color' in sys.argv
     verbose = '--verbose' in sys.argv or '-v' in sys.argv
+    no_dfs = '--no-dfs' in sys.argv
+    trace = '--trace' in sys.argv
+    trace_full = '--trace-full' in sys.argv
     use_save = '--save' in sys.argv
     load_path = None
 
@@ -243,45 +241,20 @@ def main():
         print("获取每月谜题...")
         grid, N, pid, sel_date, sk = get_puzzle('monthly')
         puzzle_meta = {"puzzleSize": sk, "puzzleId": pid, "puzzleDate": sel_date}
-    elif use_fetch or puzzle_id is not None:
-        if puzzle_id is not None:
-            size_param = SIZE_MAP.get(size, '1')
-            print(f"获取谜题 (size={size}, id={puzzle_id})...")
-            try:
-                s = requests.Session()
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept-Language": "zh-CN,zh;q=0.9",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                }
-                r = s.post("https://cn.puzzle-yin-yang.com/",
-                          headers=headers,
-                          data=f"specific=1&size={size_param}&specid={puzzle_id}",
-                          timeout=30)
-                html = r.text
-                task_m = re.search(r"var\s+task\s*=\s*'([^']+)'", html)
-                w_m = re.search(r'puzzleWidth\s*:\s*(\d+)', html)
-                if task_m and w_m:
-                    task = task_m.group(1)
-                    w = int(w_m.group(1))
-                    h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
-                    h = int(h_m.group(1)) if h_m else w
-                    grid = decode(task, w)
-                    N = w
-                    puzzle_meta = {"puzzleSize": size, "puzzleId": str(puzzle_id)}
-                    print(f"获取到 {w}x{h} 谜题 (ID: {puzzle_id})")
-                else:
-                    print("未找到谜题数据")
-            except Exception as e:
-                print(f"获取失败: {e}")
+    elif puzzle_id is not None:
+        size_param = SIZE_MAP.get(size, '1')
+        print(f"获取谜题 (size={size}, id={puzzle_id})...")
+        task, w, h, pid = fetch_by_id(size_param, puzzle_id)
+        if task and w > 0:
+            grid = decode(task, w)
+            N = w
+            puzzle_meta = {"puzzleSize": size, "puzzleId": str(puzzle_id)}
+            print(f"获取到 {w}x{h} 谜题 (ID: {puzzle_id})")
         else:
-            grid, N, pid, sel_date, sk = get_puzzle(size)
-            puzzle_meta = {"puzzleSize": sk, "puzzleId": pid, "puzzleDate": sel_date}
+            print("未找到谜题数据")
     else:
-        # Example puzzle (6x6)
-        print("使用示例谜题 (6x6)")
-        grid = decode('BcBaBBWfWdWaWdBh', 6)
-        N = 6
+        grid, N, pid, sel_date, sk = get_puzzle(size)
+        puzzle_meta = {"puzzleSize": sk, "puzzleId": pid, "puzzleDate": sel_date}
 
     if grid is None:
         print("没有谜题可求解")
@@ -296,25 +269,29 @@ def main():
         pass
 
     # Solve
-    solver = Solver(time_limit=time_limit, verbose=verbose)
+    solver = Solver(time_limit=time_limit, verbose=verbose, dfs_enabled=not no_dfs)
     solver.load(grid)
     solver._puzzle_meta = puzzle_meta
     print(f"\n求解 {solver.N}x{solver.N} Yin-Yang 谜题...")
     solver.pc()
 
     t0 = time.time()
-    ok = solver.solve(save_on_fail=not loaded_from_file)
+    ok = solver.solve(save_on_fail=not loaded_from_file and not use_save)
     elapsed = time.time() - t0
 
     if ok:
-        solver.ps()
+        if trace_full:
+            solver.animate(full_trace=True)
+        elif trace:
+            solver.animate()
+        solver.ps(elapsed=elapsed)
     else:
         print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {elapsed:.3f}s)")
         if not loaded_from_file:
-            save_puzzle(grid, **puzzle_meta)
+            save_puzzle(grid, need_dfs=True, **puzzle_meta)
 
     if use_save and ok:
-        save_puzzle(grid, **puzzle_meta)
+        save_puzzle(grid, need_dfs=solver.nodes > 0, **puzzle_meta)
 
 
 if __name__ == "__main__":

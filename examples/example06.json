@@ -1,0 +1,8 @@
+{
+  "task": "zWaBBbBBBBBBBBBeWeBcBlBeWbBaBaBBBBBBBBBaWcWeBaBmWaWaWWfBBBBBBbBBBaWaWaBBcBbBeBBdWbBgBaBaBfBaWaWcBBcBcBaBaBiWaWWWkBaBBBBfBdBaBcWbBeBbBBgBaWaWaWbBBbBdBcBcBWaWcBbBaBWaWBfWbWbWcBaBfBcWBbBWdWaWbBbWcBfBWaWaWcWBaBWaBbBbBaBaBaWdBbBbBbBaBiWaWbWfBbBbWbWaWWaWaWdBaBcWBcBaWaBcWbWcBeBeWBaBaWeBcWWfWaWBbBbWaWcBeBcWaWBaBaBcWBcBhWaWeWbWaBfWza",
+  "puzzleWidth": 25,
+  "puzzleHeight": 25,
+  "need_dfs": false,
+  "puzzleSize": "25h",
+  "puzzleId": "42"
+}
