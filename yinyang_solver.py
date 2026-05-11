@@ -836,6 +836,123 @@ class Solver:
     def _done(self):
         return self._uc == 0
 
+    def _can_reach_all_same_color(self, color):
+        """从 color 颜色的第一个 cell 出发 BFS，检查能否到达所有同色 cell。
+        BFS 允许经过 UNKNOWN cell。找到所有目标后立即返回。"""
+        N, g = self.N, self.g
+        total = self._wc if color == self.WHITE else self._bc
+        if total <= 1:
+            return True
+
+        first = None
+        for r in range(N):
+            for c in range(N):
+                if g[r][c] == color:
+                    first = (r, c)
+                    break
+            if first:
+                break
+
+        visited = [[False] * N for _ in range(N)]
+        q = deque([first])
+        visited[first[0]][first[1]] = True
+        found = 1
+
+        while q and found < total:
+            cr, cc = q.popleft()
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = cr + dr, cc + dc
+                if not (0 <= nr < N and 0 <= nc < N):
+                    continue
+                if visited[nr][nc]:
+                    continue
+                nv = g[nr][nc]
+                if nv == color or nv == self.UNKNOWN:
+                    visited[nr][nc] = True
+                    q.append((nr, nc))
+                    if nv == color:
+                        found += 1
+                        if found == total:
+                            return True
+
+        return found == total
+
+    def _bfs_first_opp_from_unknown(self, sr, sc, opp):
+        """从 UNKNOWN cell (sr,sc) 出发，仅在 UNKNOWN 中 BFS，
+        返回遇到的第一个 O 色 cell，若无则返回 None。"""
+        N, g = self.N, self.g
+        visited = [[False] * N for _ in range(N)]
+        q = deque([(sr, sc)])
+        visited[sr][sc] = True
+        while q:
+            cr, cc = q.popleft()
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = cr + dr, cc + dc
+                if not (0 <= nr < N and 0 <= nc < N):
+                    continue
+                if visited[nr][nc]:
+                    continue
+                nv = g[nr][nc]
+                if nv == opp:
+                    return (nr, nc)
+                if nv == self.UNKNOWN:
+                    visited[nr][nc] = True
+                    q.append((nr, nc))
+        return None
+
+    def _check_opposite_connectivity_at(self, r, c):
+        """给定已染色 cell (r,c)，检查其对立色 O 在 (r,c) 周边
+        是否仍能通过 UNKNOWN 保持连通。
+        若 (r,c) 为 UNKNOWN 或记录到的 O cell ≤1 个 → True。
+        记录规则：若邻居为 O 直接记录；若邻居为 UNKNOWN 则 BFS 经 UNKNOWN
+        找到第一个 O 并记录。若 2+ 个 O cell 不能相互到达 → False。"""
+        g = self.g
+        if g[r][c] == self.UNKNOWN:
+            return True
+        color = g[r][c]
+        opp = self.BLACK if color == self.WHITE else self.WHITE
+        N = self.N
+
+        recorded = set()
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            nr, nc = r + dr, c + dc
+            if not (0 <= nr < N and 0 <= nc < N):
+                continue
+            nv = g[nr][nc]
+            if nv == opp:
+                recorded.add((nr, nc))
+            elif nv == self.UNKNOWN:
+                found = self._bfs_first_opp_from_unknown(nr, nc, opp)
+                if found is not None:
+                    recorded.add(found)
+
+        if len(recorded) <= 1:
+            return True
+
+        # BFS from first recorded through O+UNKNOWN to reach all recorded
+        visited = [[False] * N for _ in range(N)]
+        first = next(iter(recorded))
+        q = deque([first])
+        visited[first[0]][first[1]] = True
+        reachable = {first}
+
+        while q and len(reachable) < len(recorded):
+            cr, cc = q.popleft()
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = cr + dr, cc + dc
+                if not (0 <= nr < N and 0 <= nc < N):
+                    continue
+                if visited[nr][nc]:
+                    continue
+                nv = g[nr][nc]
+                if nv == opp or nv == self.UNKNOWN:
+                    visited[nr][nc] = True
+                    q.append((nr, nc))
+                    if nv == opp and (nr, nc) in recorded:
+                        reachable.add((nr, nc))
+
+        return len(reachable) == len(recorded)
+
     # ---- cell selection ----
     def _pick(self):
         """Pick unknown cell closest to the last assigned cell (Manhattan distance).
@@ -922,9 +1039,6 @@ class Solver:
         for co in order:
             sp = self._snap()
             if self._set(r, c, co):
-                if self.verbose:
-                    print(f"[DFS] node {self.nodes}: try ({r},{c}) = {'WHITE' if co == 1 else 'BLACK'}")
-                    self.pc()
                 if self._dfs():
                     return True
             self._backtrack(sp)
