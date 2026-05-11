@@ -288,11 +288,12 @@ def main():
 
     if ok:
         delay_sec = trace_delay / 1000.0 if trace_delay is not None else None
+        animating = trace_full or trace
         if trace_full:
             solver.animate(full_trace=True, delay=delay_sec)
         elif trace:
             solver.animate(delay=delay_sec)
-        solver.ps(elapsed=elapsed)
+        solver.ps(elapsed=elapsed, show_grid=not animating)
     else:
         print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {elapsed:.3f}s)")
         if not loaded_from_file:

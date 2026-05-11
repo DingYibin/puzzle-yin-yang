@@ -1085,11 +1085,12 @@ class Solver:
         print("   " + "─" * (cw * self.N))
         print(f"       trace={len(self._trace)}  stack={len(self._stack)}  uc={self._uc}")
 
-    def ps(self, elapsed=None):
+    def ps(self, elapsed=None, show_grid=True):
         RE = "\033[0m"; BO = "\033[1m"
         print(f"\n{BO}结果{RE}")
         print("=" * 50)
-        self.pc()
+        if show_grid:
+            self.pc()
         wc = sum(1 for r in range(self.N) for c in range(self.N) if self.g[r][c]==self.WHITE)
         bc = sum(1 for r in range(self.N) for c in range(self.N) if self.g[r][c]==self.BLACK)
         print(f"○白={wc} ●黑={bc} 总={self.N*self.N}")
