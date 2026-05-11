@@ -1055,6 +1055,10 @@ class Solver:
         self.g = [row[:] for row in self._initial_grid]
         steps = self._trace if full_trace else self._stack
         total = len(steps)
+        _os.system('clear')
+        print(f"初始谜题 ({total} 步待求解)")
+        self.pc()
+        _time.sleep(1)
         for i, (r, c, v) in enumerate(steps):
             self.g[r][c] = v
             _os.system('clear')
