@@ -1047,11 +1047,11 @@ class Solver:
     # ---- animation ----
     def animate(self, delay=None, full_trace=False):
         """Animate solving process. If full_trace, show backtracking; otherwise only final assignments.
-        Default delay: 0.05 for clean trace, 0.005 for full trace."""
+        Default delay: 0.02 for clean trace, 0.005 for full trace."""
         import time as _time
         import os as _os
         if delay is None:
-            delay = 0.005 if full_trace else 0.05
+            delay = 0.005 if full_trace else 0.02
         self.g = [row[:] for row in self._initial_grid]
         steps = self._trace if full_trace else self._stack
         total = len(steps)
@@ -1062,6 +1062,7 @@ class Solver:
             print(f"求解进度: {remaining}/{total} 步待执行")
             self.pc()
             _time.sleep(delay)
+        _time.sleep(1)
 
     # ---- print ----
     def pc(self):
