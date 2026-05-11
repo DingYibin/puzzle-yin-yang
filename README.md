@@ -54,6 +54,8 @@ BFS 桥规则（`_bfs_comp`）：单元格赋值时立即检查同色及反色�
 
 Union-Find 桥规则（`_connectivity_expand` 预处理）：扫描全图连通分量，找不到边界 → 冲突；恰好 1 个边界 → 强制赋值。
 
+Try-both 对立色连通检查（`_check_opposite_connectivity_at`）：每个 try 分支中，从已染色 cell 出发，检查其周围的对立色 cell 是否能通过 UNKNOWN 保持连通。若 2+ 个对立色 cell 被阻断 → 该分支非法。大幅减少 DFS 节点数。
+
 DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。可通过 `--no-dfs` 禁用。
 
 ## 谜题格式
@@ -107,12 +109,12 @@ DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。�
 uv run python main.py --load examples/example01.json   # 30×30（每日）
 uv run python main.py --load examples/example02.json   # 35×35（每周）
 uv run python main.py --load examples/example03.json   # 40×40（每月）
-uv run python main.py --load examples/example04.json   # 25×25 hard（需 DFS）
-uv run python main.py --load examples/example05.json   # 25×25 hard（纯推理，约 831ms）
-uv run python main.py --load examples/example06.json   # 25×25 hard（纯推理，约 392ms）
-uv run python main.py --load examples/example07.json   # 25×25 hard（纯推理，约 377ms）
-uv run python main.py --load examples/example08.json   # 25×25 hard（需 DFS，约 1.6s）
-uv run python main.py --load examples/example09.json   # 25×25 hard（需 DFS，约 751ms）
+uv run python main.py --load examples/example04.json   # 25×25 hard（纯推理，约 60ms）
+uv run python main.py --load examples/example05.json   # 25×25 hard（纯推理，约 396ms）
+uv run python main.py --load examples/example06.json   # 25×25 hard（纯推理，约 172ms）
+uv run python main.py --load examples/example07.json   # 25×25 hard（纯推理，约 115ms）
+uv run python main.py --load examples/example08.json   # 25×25 hard（需 DFS，约 743ms）
+uv run python main.py --load examples/example09.json   # 25×25 hard（纯推理，约 99ms）
 ```
 
 | 文件 | 尺寸 | 耗时（10次平均） | trace | 节点 |
@@ -120,9 +122,9 @@ uv run python main.py --load examples/example09.json   # 25×25 hard（需 DFS�
 | example01 | 30×30 | 140ms | 5478 | 0 |
 | example02 | 35×35 | 277ms | 11015 | 0 |
 | example03 | 40×40 | 296ms | 10084 | 0 |
-| example04 | 25×25 hard | 165ms | 6733 | 9 |
-| example05 | 25×25 hard | 831ms | 27562 | 0 |
-| example06 | 25×25 hard | 392ms | 15348 | 0 |
-| example07 | 25×25 hard | 377ms | 12994 | 0 |
-| example08 | 25×25 hard | 1632ms | 68612 | 1748 |
-| example09 | 25×25 hard | 751ms | 19996 | 198 |
+| example04 | 25×25 hard | 60ms | 4287 | 0 |
+| example05 | 25×25 hard | 396ms | 27562 | 0 |
+| example06 | 25×25 hard | 172ms | 14874 | 0 |
+| example07 | 25×25 hard | 115ms | 7900 | 0 |
+| example08 | 25×25 hard | 743ms | 68372 | 1748 |
+| example09 | 25×25 hard | 99ms | 7602 | 0 |

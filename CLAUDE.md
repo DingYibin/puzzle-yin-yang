@@ -16,6 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Disable DFS**: `uv run python main.py --no-dfs` (pure deduction only)
 - **Print puzzle only**: `uv run python main.py --size 15 -p`
 - **Sync env**: `uv sync`
+- **Benchmark**: `uv run python benchmark.py` (runs 10 times per example puzzle, reports avg/best time, trace, stack, nodes)
 
 ## Project Structure
 
@@ -43,6 +44,8 @@ No test framework or tests configured yet.
 
 **Try-both** (`_try_both`): For each unknown cell (sorted by fewest unknown neighbors first, then distance to center), try WHITE. If WHITE fails → BLACK is forced (or unsolvable). If WHITE succeeds, try BLACK: if BLACK fails → WHITE is forced. Loops until no more forced cells. Relies on `_set()` for all propagation — no separate `_propagate()` call.
 
+Each try includes a localized opposite-color connectivity check (`_check_opposite_connectivity_at`) that BFS from unknown neighbors to find opposite-color cells, then verifies they can all reach each other through UNKNOWN cells. This prunes invalid branches early, often eliminating DFS entirely.
+
 DFS can be disabled via `dfs_enabled=False` / `--no-dfs` flag.
 
 **DFS** (`_dfs`): Picks a cell via `_pick()`, tries WHITE/BLACK (ordered by neighbor majority), recurses. On timeout → False. On leaf (`_uc == 0`) → `_ok()` verifies full connectivity.
@@ -67,6 +70,12 @@ DFS can be disabled via `dfs_enabled=False` / `--no-dfs` flag.
 - `_perimeter()` — Contiguity check if the cell is on the outer boundary
 
 No separate `_propagate()` loop — all propagation is recursive via `_set()`.
+
+### Localized Opposite-Color Connectivity Check
+
+- `_check_opposite_connectivity_at(r, c)` — After setting (r,c) to color C, collects opposite-color O cells adjacent to (r,c): directly if neighbor is O, or via BFS through UNKNOWN cells. If 2+ O cells are found, BFS through O+UNKNOWN verifies they can all reach each other. Returns False (conflict) if not.
+- `_bfs_first_opp_from_unknown(sr, sc, opp)` — Helper that BFS from an UNKNOWN cell through UNKNOWN-only cells and returns the first O cell encountered.
+- `_can_reach_all_same_color(color)` — Global connectivity check: BFS from first cell of `color` through same-color + UNKNOWN cells, verifying all same-color cells are reachable. Uses count-based early exit. (Defined but not currently called.)
 
 ### Union-Find `_connectivity_expand()` (Bridge Rule)
 
@@ -137,8 +146,8 @@ Saved format: `{"task": "<RLE>", "puzzleWidth": N, "puzzleHeight": N, "need_dfs"
 
 Every `_set()` call records `(r, c, v)` to `_trace`. Undo operations via `_backtrack()` also record `(r, c, 0)` to `_trace`. The assignment stack `_stack` stores only final (non-rolled-back) assignments.
 
-- `animate(full_trace=False)` — replays `_stack` (clean solving steps, no backtracking)
-- `animate(full_trace=True)` — replays `_trace` (full solving including backtracking)
+- `animate(full_trace=False)` — replays `_stack` (clean solving steps, no backtracking). Default delay: 0.05s.
+- `animate(full_trace=True)` — replays `_trace` (full solving including backtracking). Default delay: 0.005s.
 - CLI `--trace` triggers clean animation; `--trace-full` triggers full backtracking animation
 
 ### Visualization
@@ -149,3 +158,4 @@ Terminal output uses ANSI escape codes:
 - Gray background (`·`) for UNKNOWN cells
 - Column/row headers with bold formatting
 - Verification status with ✓/✗ markers
+- `pc()` also prints `trace`, `stack`, and `uc` counts below the grid in verbose mode
