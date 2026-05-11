@@ -1045,10 +1045,13 @@ class Solver:
         return False
 
     # ---- animation ----
-    def animate(self, delay=0.02, full_trace=False):
-        """Animate solving process. If full_trace, show backtracking; otherwise only final assignments."""
+    def animate(self, delay=None, full_trace=False):
+        """Animate solving process. If full_trace, show backtracking; otherwise only final assignments.
+        Default delay: 0.05 for clean trace, 0.005 for full trace."""
         import time as _time
         import os as _os
+        if delay is None:
+            delay = 0.005 if full_trace else 0.05
         self.g = [row[:] for row in self._initial_grid]
         steps = self._trace if full_trace else self._stack
         total = len(steps)
@@ -1075,6 +1078,7 @@ class Solver:
                 else: s += f"{GB} · {RE}"
             print(s)
         print("   " + "─" * (cw * self.N))
+        print(f"       trace={len(self._trace)}  stack={len(self._stack)}  uc={self._uc}")
 
     def ps(self, elapsed=None):
         RE = "\033[0m"; BO = "\033[1m"
