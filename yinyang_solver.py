@@ -1043,6 +1043,7 @@ class Solver:
         Default delay: 0.02 for clean trace, 0.005 for full trace."""
         import time as _time
         import os as _os
+        import sys as _sys
         if delay is None:
             delay = 0.01
         self.g = [row[:] for row in self._initial_grid]
@@ -1052,12 +1053,23 @@ class Solver:
         print(f"初始谜题 ({total} 步待求解)")
         self.pc()
         _time.sleep(2)
+        WB = "\033[47m\033[30m"; BB = "\033[40m\033[97m"; GB = "\033[100m\033[97m"; RE = "\033[0m"
         for i, (r, c, v) in enumerate(steps):
             self.g[r][c] = v
-            _os.system('clear')
             remaining = total - i - 1
-            print(f"求解进度: {remaining}/{total} 步待执行")
-            self.pc()
+            # Update progress title (row 1)
+            _sys.stdout.write(f"\033[1;1H求解进度: {remaining}/{total} 步待执行" + " " * 20)
+            # Update cell at (r,c): data rows start at row 4, cell col at 4 + c*3
+            _sys.stdout.write(f"\033[{r + 4};{4 + c * 3}H")
+            if v == self.WHITE:
+                _sys.stdout.write(f"{WB} ○ {RE}")
+            elif v == self.BLACK:
+                _sys.stdout.write(f"{BB} ● {RE}")
+            else:
+                _sys.stdout.write(f"{GB} · {RE}")
+            # Move cursor below grid to keep terminal tidy
+            _sys.stdout.write(f"\033[{self.N + 6};1H")
+            _sys.stdout.flush()
             _time.sleep(delay)
         _time.sleep(2)
 
