@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Debug mode**: `uv run python main.py --debug` (prints grid state at each step)
 - **Animation**: `uv run python main.py --trace` (clean solving steps) / `--trace-full` (with backtracking)
 - **Animation delay**: `uv run python main.py --trace --trace-delay 50` (in milliseconds, default 10ms)
-- **Disable DFS**: `uv run python main.py --no-dfs` (pure deduction only)
+
 - **Print puzzle only**: `uv run python main.py --size 15 -p`
 - **Sync env**: `uv sync`
 - **Benchmark**: `uv run python benchmark.py` (runs 10 times per example puzzle, reports avg/best time, trace, stack, nodes)
@@ -54,7 +54,7 @@ No test framework or tests configured yet.
 
 Each try includes a localized opposite-color connectivity check (`_check_opposite_connectivity_at`) that BFS from unknown neighbors to find opposite-color cells, then verifies they can all reach each other through UNKNOWN cells. This prunes invalid branches early, often eliminating DFS entirely.
 
-DFS can be disabled via `dfs_enabled=False` / `--no-dfs` flag.
+
 
 **DFS** (`_dfs`): Picks a cell via `_pick()`, tries WHITE/BLACK (ordered by neighbor majority). After each successful `_set()`, runs `_try_one_cell_both` on every UNKNOWN cell in the 3×3 neighborhood to absorb local forced deductions early, reducing DFS branch explosion. Recurses. On timeout → False. On leaf (`_uc == 0`) → `_ok()` verifies full connectivity.
 

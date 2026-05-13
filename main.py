@@ -217,7 +217,7 @@ def main():
     time_limit = 10.0
     no_color = '--no-color' in sys.argv
     debug = '--debug' in sys.argv or '-v' in sys.argv
-    no_dfs = '--no-dfs' in sys.argv
+
     trace = '--trace' in sys.argv
     trace_full = '--trace-full' in sys.argv
     trace_delay = None  # ms
@@ -304,7 +304,7 @@ def main():
         pass
 
     # Solve
-    solver = Solver(time_limit=time_limit, debug=debug, dfs_enabled=not no_dfs)
+    solver = Solver(time_limit=time_limit, debug=debug)
     solver.load(grid)
     solver._puzzle_meta = puzzle_meta
     print(f"\n求解 {solver.N}x{solver.N} Yin-Yang 谜题...")

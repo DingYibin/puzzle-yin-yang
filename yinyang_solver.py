@@ -23,10 +23,9 @@ def _timeit(key):
 class Solver:
     UNKNOWN, WHITE, BLACK = 0, 1, 2
 
-    def __init__(self, time_limit=5.0, debug=False, dfs_enabled=True):
+    def __init__(self, time_limit=5.0, debug=False):
         self.tlim = time_limit
         self.debug = debug
-        self.dfs_enabled = dfs_enabled
         self.N = 0
         self.g = []       # grid
         self.fixed = []    # given cells
@@ -1110,9 +1109,7 @@ class Solver:
                 self.pc()
             if self._done():
                 return True
-        if self.dfs_enabled:
-            return self._dfs()
-        return False
+        return self._dfs()
 
     def _dfs(self):
         if time.time() - self.t0 > self.tlim:

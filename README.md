@@ -37,9 +37,6 @@ uv run python main.py --trace-full
 
 # 自定义动画间隔（毫秒，默认 10ms）
 uv run python main.py --trace --trace-delay 50
-
-# 禁用 DFS（纯推理）
-uv run python main.py --no-dfs
 ```
 
 ## 求解策略
@@ -59,7 +56,7 @@ Union-Find 桥规则（`_connectivity_expand` 预处理）：扫描全图连通�
 
 Try-both 对立色连通检查（`_check_opposite_connectivity_at`）：每个 try 分支中，从已染色 cell 出发，检查其周围的对立色 cell 是否能通过 UNKNOWN 保持连通。若 2+ 个对立色 cell 被阻断 → 该分支非法。大幅减少 DFS 节点数。
 
-DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。可通过 `--no-dfs` 禁用。
+DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。
 
 ## 谜题格式
 
