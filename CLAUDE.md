@@ -18,13 +18,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Print puzzle only**: `uv run python main.py --size 15 -p`
 - **Sync env**: `uv sync`
 - **Benchmark**: `uv run python benchmark.py` (runs 10 times per example puzzle, reports avg/best time, trace, stack, nodes)
+- **Benchmark (all sizes)**: `uv run python benchmark_sizes.py` (reads `puzzles_all.json`, 1500 puzzles × 15 size/difficulty combos, reports avg/max trace, DFS count)
 
 ## Project Structure
 
 - `main.py` — CLI, argument parsing, puzzle fetching from `cn.puzzle-yin-yang.com`
 - `yinyang_solver.py` — Solver engine (`Solver` class + `decode`/`encode` helpers)
 - `pyproject.toml` — Project metadata, Python ≥3.12, depends only on `requests`
-- `puzzles/` — Auto-saved puzzles (on failure, or via `--save` flag)
+- `puzzles/` — Individual puzzle files saved by `fetch_puzzles.py` (subdirectories per size)
+- `puzzles_all.json` — Compiled dataset of 1500 solvable puzzles (15 sizes × 100 each)
+- `fetch_puzzles.py` — Bulk random-fetch script: fetches solvable puzzles, saves individually, merges to `puzzles_all.json`
+- `benchmark_sizes.py` — Comprehensive benchmark reading `puzzles_all.json`, reports avg time, avg/max trace, DFS count per size/difficulty
 
 No test framework or tests configured yet.
 
@@ -133,18 +137,27 @@ CLI `--size` uses human keys (`6`, `10`, `15`, `20`, `25`, `30`, `35`, `40`) wit
 
 Also supports `daily`, `weekly`, `monthly` as size keys.
 
-### Performance Expectations
+### Performance Expectations (benchmark_sizes.py, 100 puzzles per size/difficulty)
 
-| Size | Typical | Notes |
-|------|---------|-------|
-| 6×6 | < 1ms | Pure deduction, 0 DFS nodes |
-| 10×10 | < 5ms | 0–11 DFS nodes |
-| 15×15 | < 10ms | 0–5 DFS nodes |
-| 20×20 normal | < 25ms | 0–12 DFS nodes |
-| 20×20 hard | may time out | Many scattered components, bridge rule can't fire |
-| 25×25 | < 1.5s | 0–400 DFS nodes |
+| Size | Difficulty | Avg Time | Avg Trace | Max Trace | DFS Needed |
+|------|-----------|---------|-----------|-----------|------------|
+| 6×6 | easy | 0.57ms | 26 | 29 | 0/100 |
+| 6×6 | normal | 0.66ms | 59 | 427 | 0/100 |
+| 6×6 | hard | 1.40ms | 192 | 902 | 0/100 |
+| 10×10 | easy | 2.49ms | 69 | 76 | 0/100 |
+| 10×10 | normal | 2.83ms | 247 | 3,408 | 0/100 |
+| 10×10 | hard | 4.57ms | 533 | 2,764 | 0/100 |
+| 15×15 | easy | 7.50ms | 153 | 164 | 0/100 |
+| 15×15 | normal | 6.22ms | 445 | 2,694 | 0/100 |
+| 15×15 | hard | 14.04ms | 1,672 | 24,902 | 1/100 |
+| 20×20 | easy | 16.84ms | 258 | 279 | 0/100 |
+| 20×20 | normal | 12.64ms | 917 | 5,298 | 0/100 |
+| 20×20 | hard | 27.62ms | 2,674 | 14,192 | 0/100 |
+| 25×25 | easy | 29.27ms | 389 | 414 | 0/100 |
+| 25×25 | normal | 30.15ms | 2,178 | 42,421 | 0/100 |
+| 25×25 | hard | 56.99ms | 5,511 | 75,956 | 2/100 |
 
-Puzzles where both colors have many small components (10+ each) are the hardest because each component has ≥2 boundary cells, preventing the bridge rule from firing. The DFS then has too many degrees of freedom.
+Out of 1500 random puzzles, only 3 required DFS (15×15 hard ×1, 25×25 hard ×2). The hardest 25×25 hard puzzle took 838ms / 1120 nodes.
 
 ### Auto-save
 
@@ -157,6 +170,8 @@ Saved format: `{"task": "<RLE>", "puzzleWidth": N, "puzzleHeight": N, "puzzleSiz
 
 - `GET` requests for random/daily puzzles — parses `task`, `puzzleWidth`, `puzzleID`, and selected date from HTML
 - `POST` requests for specific puzzle IDs — sends `specific=1&size=X&specid=Y` form data
+- Both `fetch_puzzle` (GET) and `fetch_by_id` (POST) retry up to 5–9 times on failure, with random ~N(1s, 0.5s) delay between attempts
+- `is_task_valid(task)` verifies RLE encoding is canonical (consecutive lowercase letters must be `z` repeated except last). Invalid tasks are treated as wrong-puzzle responses and trigger retry.
 - Headers include Chinese locale (`zh-CN,zh;q=0.9`) for compatibility
 
 ### Trace & Animation
