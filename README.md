@@ -81,26 +81,26 @@ DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。�
 
 | 尺寸 | 难度 | 平均耗时 | 平均 trace |
 |------|------|---------|-----------|
-| 6×6 | easy | 2ms | 25 |
-| 6×6 | normal | 2ms | 39 |
-| 6×6 | hard | 4ms | 228 |
-| 10×10 | easy | 5ms | 70 |
-| 10×10 | normal | 6ms | 191 |
-| 10×10 | hard | 9ms | 323 |
-| 15×15 | easy | 16ms | 152 |
-| 15×15 | normal | 22ms | 834 |
-| 15×15 | hard | 17ms | 593 |
-| 20×20 | easy | 33ms | 255 |
-| 20×20 | normal | 34ms | 878 |
-| 20×20 | hard | 58ms | 2,423 |
-| 25×25 | easy | 63ms | 389 |
-| 25×25 | normal | 63ms | 1,810 |
-| 25×25 | hard | 114ms | 4,465 |
-| 30×30 (每日) | — | ~140ms | ~5.5k |
-| 35×35 (每周) | — | ~277ms | ~11k |
-| 40×40 (每月) | — | ~296ms | ~10k |
+| 6×6 | easy | <1ms | 25 |
+| 6×6 | normal | <1ms | 39 |
+| 6×6 | hard | 1ms | 228 |
+| 10×10 | easy | 1ms | 70 |
+| 10×10 | normal | 2ms | 191 |
+| 10×10 | hard | 3ms | 323 |
+| 15×15 | easy | 5ms | 152 |
+| 15×15 | normal | 7ms | 834 |
+| 15×15 | hard | 6ms | 593 |
+| 20×20 | easy | 12ms | 255 |
+| 20×20 | normal | 12ms | 878 |
+| 20×20 | hard | 23ms | 2,423 |
+| 25×25 | easy | 15ms | 389 |
+| 25×25 | normal | 20ms | 1,810 |
+| 25×25 | hard | 38ms | 4,465 |
+| 30×30 (每日) | — | ~52ms | ~5.2k |
+| 35×35 (每周) | — | ~99ms | ~10.8k |
+| 40×40 (每月) | — | ~114ms | ~9.9k |
 
-复杂 20×20（散落线索较多）可能需 DFS 或超时。25×25 hard 平均 trace ≈ 4.5k，偶见需 DFS 的极端谜题。
+复杂 20×20（散落线索较多）可能需 DFS 或超时。25×25 hard 平均 trace ≈ 4.5k，偶见需 DFS 的极端谜题（example08 已从 743ms 优化至 183ms，节点数从 1748 降至 29）。
 
 ## 测试用例
 
@@ -112,22 +112,22 @@ DFS 选择最小多分量颜色的边界格优先，结合桥评分启发式。�
 uv run python main.py --load examples/example01.json   # 30×30（每日）
 uv run python main.py --load examples/example02.json   # 35×35（每周）
 uv run python main.py --load examples/example03.json   # 40×40（每月）
-uv run python main.py --load examples/example04.json   # 25×25 hard（纯推理，约 60ms）
-uv run python main.py --load examples/example05.json   # 25×25 hard（纯推理，约 396ms）
-uv run python main.py --load examples/example06.json   # 25×25 hard（纯推理，约 172ms）
-uv run python main.py --load examples/example07.json   # 25×25 hard（纯推理，约 115ms）
-uv run python main.py --load examples/example08.json   # 25×25 hard（需 DFS，约 743ms）
-uv run python main.py --load examples/example09.json   # 25×25 hard（纯推理，约 99ms）
+uv run python main.py --load examples/example04.json   # 25×25 hard（纯推理，~38ms）
+uv run python main.py --load examples/example05.json   # 25×25 hard（纯推理，~224ms）
+uv run python main.py --load examples/example06.json   # 25×25 hard（纯推理，~106ms）
+uv run python main.py --load examples/example07.json   # 25×25 hard（纯推理，~77ms）
+uv run python main.py --load examples/example08.json   # 25×25 hard（需 DFS，~183ms）
+uv run python main.py --load examples/example09.json   # 25×25 hard（纯推理，~59ms）
 ```
 
 | 文件 | 尺寸 | 耗时（10次平均） | trace | 节点 |
 |------|------|-------------------|-------|------|
-| example01 | 30×30 | 140ms | 5478 | 0 |
-| example02 | 35×35 | 277ms | 11015 | 0 |
-| example03 | 40×40 | 296ms | 10084 | 0 |
-| example04 | 25×25 hard | 60ms | 4287 | 0 |
-| example05 | 25×25 hard | 396ms | 27562 | 0 |
-| example06 | 25×25 hard | 172ms | 14874 | 0 |
-| example07 | 25×25 hard | 115ms | 7900 | 0 |
-| example08 | 25×25 hard | 743ms | 68372 | 1748 |
-| example09 | 25×25 hard | 99ms | 7602 | 0 |
+| example01 | 30×30 | 52ms | 5188 | 0 |
+| example02 | 35×35 | 99ms | 10849 | 0 |
+| example03 | 40×40 | 114ms | 9854 | 0 |
+| example04 | 25×25 hard | 39ms | 4421 | 0 |
+| example05 | 25×25 hard | 224ms | 28236 | 0 |
+| example06 | 25×25 hard | 106ms | 15180 | 0 |
+| example07 | 25×25 hard | 77ms | 8394 | 0 |
+| example08 | 25×25 hard | 183ms | 28594 | 29 |
+| example09 | 25×25 hard | 59ms | 7258 | 0 |
