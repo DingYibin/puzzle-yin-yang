@@ -7,12 +7,25 @@ import time
 from collections import deque
 
 
+def _timeit(key):
+    """Decorator that accumulates method execution time in self._timing[key]."""
+    def decorator(func):
+        def wrapper(self, *args, **kwargs):
+            _t0 = time.time()
+            try:
+                return func(self, *args, **kwargs)
+            finally:
+                self._timing[key] = self._timing.get(key, 0.0) + time.time() - _t0
+        return wrapper
+    return decorator
+
+
 class Solver:
     UNKNOWN, WHITE, BLACK = 0, 1, 2
 
-    def __init__(self, time_limit=5.0, verbose=False, dfs_enabled=True):
+    def __init__(self, time_limit=5.0, debug=False, dfs_enabled=True):
         self.tlim = time_limit
-        self.verbose = verbose
+        self.debug = debug
         self.dfs_enabled = dfs_enabled
         self.N = 0
         self.g = []       # grid
@@ -22,12 +35,19 @@ class Solver:
         self._stack = []     # assignment stack (r, c, v)
         self._trace = []   # solving trace for animation
         self._wc = self._bc = self._uc = 0
+        self._timing = {}
+        self._peri = ()
+        self._visited = []
+        self._visit_gen = 0
 
     def load(self, grid):
         self.N = len(grid)
         self.g = [row[:] for row in grid]
         self.fixed = [[False]*self.N for _ in range(self.N)]
+        self._visited = [[0] * self.N for _ in range(self.N)]
+        self._visit_gen = 0
         self._wc = self._bc = self._uc = 0
+        self._timing.clear()
         for r in range(self.N):
             for c in range(self.N):
                 v = grid[r][c]
@@ -39,8 +59,58 @@ class Solver:
                     self._uc += 1
                 if v:
                     self.fixed[r][c] = True
+        self._peri = (
+            [(0, c) for c in range(self.N)] +
+            [(r, self.N - 1) for r in range(1, self.N)] +
+            [(self.N - 1, c) for c in range(self.N - 2, -1, -1)] +
+            [(r, 0) for r in range(self.N - 2, 0, -1)]
+        )
 
     # ---- core assignment & propagation ----
+    @_timeit('batch_set')
+    def _batch_set(self, cells, v, *, rule_2x2=True, rule_corner3=True,
+                   rule_surrounded=True, rule_bfs=True, rule_perimeter=True):
+        """Set multiple cells to value v with a single propagation pass.
+        Sets all cells first (grid + counters), then runs selected rules
+        for each cell.  Keyword-only flags control which rules fire.
+        _perimeter() is called only when rule_perimeter and at least one
+        cell is on the grid boundary."""
+        to_set = [(r, c) for r, c in cells if self.g[r][c] != v]
+        if not to_set:
+            return True
+        for r, c in to_set:
+            old = self.g[r][c]
+            trace_step = len(self._trace)
+            self._stack.append((trace_step, r, c, v))
+            if old == 0: self._uc -= 1
+            elif old == 1: self._wc -= 1
+            else: self._bc -= 1
+            if v == 0: self._uc += 1
+            elif v == 1: self._wc += 1
+            else: self._bc += 1
+            self.g[r][c] = v
+            self._trace.append((trace_step, r, c, v))
+        opp_v = self.BLACK if v == self.WHITE else self.WHITE
+        for r, c in to_set:
+            if rule_2x2 and not self._rule_2x2_at(r, c):
+                return False
+            if rule_corner3 and not self._rule_corner3_at(r, c):
+                return False
+            if rule_surrounded and not self._rule_surrounded_at(r, c):
+                return False
+            if rule_bfs:
+                if not self._bfs_comp(r, c):
+                    return False
+                for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < self.N and 0 <= nc < self.N and self.g[nr][nc] == opp_v:
+                        if not self._bfs_comp(nr, nc):
+                            return False
+        if rule_perimeter and any(r == 0 or r == self.N - 1 or c == 0 or c == self.N - 1 for r, c in to_set):
+            if self._perimeter() is None:
+                return False
+        return True
+
     def _set(self, r, c, v):
         """
         Set cell (r,c) to v and run all propagation rules.
@@ -51,7 +121,8 @@ class Solver:
         old = self.g[r][c]
         if old == v:
             return True
-        self._stack.append((r, c, v))
+        trace_step = len(self._trace)
+        self._stack.append((trace_step, r, c, v))
         # update counts
         if old == 0: self._uc -= 1
         elif old == 1: self._wc -= 1
@@ -60,7 +131,7 @@ class Solver:
         elif v == 1: self._wc += 1
         else: self._bc += 1
         self.g[r][c] = v
-        self._trace.append((r, c, v))
+        self._trace.append((trace_step, r, c, v))
 
         if not self._rule_2x2_at(r, c):
             return False
@@ -89,6 +160,7 @@ class Solver:
         return True
 
     # ---- extracted rule helpers (incremental, called from _set) ----
+    @_timeit('2x2')
     def _rule_2x2_at(self, r, c):
         """Check 4 surrounding 2×2 blocks for Rules 1 & 2 after setting (r,c).
         Returns False on conflict, True otherwise."""
@@ -141,6 +213,7 @@ class Solver:
                         continue
         return True
 
+    @_timeit('2x3_3x2')
     def _rule_corner3_at(self, r, c):
         """Check 2×3/3×2 corner Rule 5 after setting (r,c).
         Returns False on conflict, True otherwise."""
@@ -193,6 +266,7 @@ class Solver:
                             break
         return True
 
+    @_timeit('surrounded')
     def _rule_surrounded_at(self, r, c):
         """Check surrounded Rule 4 after setting (r,c).
         Case 1: UNKNOWN neighbor — all known neighbors same color.
@@ -250,14 +324,15 @@ class Solver:
 
     def _backtrack(self, snap_pos):
         while len(self._stack) > snap_pos:
-            r, c, _ = self._stack.pop()
+            _, r, c, _ = self._stack.pop()
             cur = self.g[r][c]
             if cur == 0: self._uc -= 1
             elif cur == 1: self._wc -= 1
             else: self._bc -= 1
             self._uc += 1
             self.g[r][c] = 0
-            self._trace.append((r, c, 0))
+            trace_step = len(self._trace)
+            self._trace.append((trace_step, r, c, 0))
 
     # ---- 2x2 full-grid preprocessing ----
     def _preprocess_2x2(self):
@@ -318,49 +393,62 @@ class Solver:
         return changed
 
     # ---- component analysis & bridge rule ----
+    @_timeit('bfs')
     def _bfs_comp(self, r, c):
         """
         Bridge rule: BFS from colored cell (r,c) through same-color component.
-        If component has exactly 1 unknown boundary cell, force it.
-        - 0 unknown boundary cells with other components existing → conflict
-        - 2+ unknown boundary cells → can't force, return True
-        - All same-color cells in one component already → return True
+        Cascades: forces unknowns one at a time and continues BFS to detect
+        further forced cells, then batch-sets them with a single propagation pass.
+        Returns False on conflict, True otherwise.
         """
         color = self.g[r][c]
         if color == self.UNKNOWN:
             return True
         total = self._wc if color == self.WHITE else self._bc
 
-        visited = [[False] * self.N for _ in range(self.N)]
+        self._visit_gen += 1
+        gen = self._visit_gen
+        visited = self._visited
+        visited[r][c] = gen
         q = deque([(r, c)])
-        visited[r][c] = True
-        size = 0
+        found = 0  # actual same-color cells found
         unknown = None
+        candidates = []
 
-        while q:
-            cr, cc = q.popleft()
-            size += 1
-            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                nr, nc = cr + dr, cc + dc
-                if not (0 <= nr < self.N and 0 <= nc < self.N):
-                    continue
-                nv = self.g[nr][nc]
-                if nv == color and not visited[nr][nc]:
-                    visited[nr][nc] = True
-                    q.append((nr, nc))
-                elif nv == self.UNKNOWN:
-                    if unknown is None:
-                        unknown = (nr, nc)
-                    elif unknown != (nr, nc):
-                        return True
+        while True:
+            while q:
+                cr, cc = q.popleft()
+                if self.g[cr][cc] == color:
+                    found += 1
+                for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    nr, nc = cr + dr, cc + dc
+                    if not (0 <= nr < self.N and 0 <= nc < self.N):
+                        continue
+                    nv = self.g[nr][nc]
+                    if nv == color and visited[nr][nc] != gen:
+                        visited[nr][nc] = gen
+                        q.append((nr, nc))
+                    elif nv == self.UNKNOWN and visited[nr][nc] != gen:
+                        if unknown is None:
+                            unknown = (nr, nc)
+                        elif unknown != (nr, nc):
+                            # 2+ boundaries → cascade what we have, don't force further
+                            if candidates:
+                                return self._batch_set(candidates, color, rule_bfs=False)
+                            return True
 
-        if size == total:
-            return True
-        # size < total: other components exist
-        if unknown is None:
-            return False
-        ur, uc = unknown
-        return self._set(ur, uc, color)
+            if found == total:
+                if candidates:
+                    return self._batch_set(candidates, color, rule_bfs=False)
+                return True
+            if unknown is None:
+                return False
+
+            # Cascade: this unknown is forced — add to candidates and expand
+            candidates.append(unknown)
+            visited[unknown[0]][unknown[1]] = gen
+            q.append(unknown)
+            unknown = None
 
     def _connectivity_expand(self):
         """
@@ -502,6 +590,37 @@ class Solver:
 
         return changed
 
+    def _try_one_cell_both(self, r, c):
+        """Try both colors on a single UNKNOWN cell (r,c).
+        Returns:
+          True  → cell was forced to a value (changed)
+          False → conflict (unsolvable)
+          None  → both colors viable, no change
+        """
+        sp = self._snap()
+        ok_w = self._set(r, c, self.WHITE) and self._check_opposite_connectivity_at(r, c)
+        self._backtrack(sp)
+
+        if ok_w:
+            sp = self._snap()
+            ok_b = self._set(r, c, self.BLACK) and self._check_opposite_connectivity_at(r, c)
+            self._backtrack(sp)
+            if ok_b:
+                return None
+            # BLACK fails → force WHITE
+            result = self._set(r, c, self.WHITE)
+        else:
+            # WHITE fails → force BLACK
+            result = self._set(r, c, self.BLACK)
+
+        if self.debug:
+            if result:
+                print(f"[try_both] 强制 ({r},{c}) = {'WHITE' if self.g[r][c] == self.WHITE else 'BLACK'}")
+            else:
+                print(f"[try_both] ({r},{c}) 冲突")
+            self.pc()
+        return result
+
     def _try_both(self):
         """
         For each unknown cell, try WHITE with full propagation.
@@ -530,35 +649,12 @@ class Solver:
         for _, _, r, c in cells:
             if self.g[r][c] != self.UNKNOWN:
                 continue
-            sp = self._snap()
-            ok_w = self._set(r, c, self.WHITE) and self._check_opposite_connectivity_at(r, c)
-            self._backtrack(sp)
-
-            if ok_w:
-                sp = self._snap()
-                ok_b = self._set(r, c, self.BLACK) and self._check_opposite_connectivity_at(r, c)
-                self._backtrack(sp)
-                if not ok_b:
-                    if not self._set(r, c, self.WHITE):
-                        if self.verbose:
-                            print(f"[try_both] force ({r},{c}) = WHITE 失败")
-                            self.pc()
-                        return False
-                    changed = True
-                    if self.verbose:
-                        print(f"[try_both] force ({r},{c}) = WHITE")
-                        self.pc()
-            else:
-                # WHITE failed → BLACK forced
-                if not self._set(r, c, self.BLACK):
-                    if self.verbose:
-                        print(f"[try_both] force ({r},{c}) = BLACK 失败")
-                        self.pc()
-                    return False
-                changed = True
-                if self.verbose:
-                    print(f"[try_both] force ({r},{c}) = BLACK")
-                    self.pc()
+            result = self._try_one_cell_both(r, c)
+            if result is None:
+                continue
+            if not result:
+                return False
+            changed = True
         return changed
 
     def _propagate(self):
@@ -702,6 +798,7 @@ class Solver:
                     changed = True
         return changed
 
+    @_timeit('perimeter')
     def _perimeter(self):
         """
         Rule 3: on the perimeter, if both colors appear and one color has
@@ -713,36 +810,33 @@ class Solver:
         if N <= 2:
             return changed
 
-        # Perimeter in clockwise order
-        peri = (
-            [(0, c) for c in range(N)] +
-            [(r, N-1) for r in range(1, N)] +
-            [(N-1, c) for c in range(N-2, -1, -1)] +
-            [(r, 0) for r in range(N-2, 0, -1)]
-        )
+        peri = self._peri
         P = len(peri)
         # Keep only colored cells with their perimeter indices
         colored = [(i, self.g[r][c]) for i, (r, c) in enumerate(peri)
                    if self.g[r][c] != self.UNKNOWN]
-
-        # Need both colors present
-        has = {v for _, v in colored}
-        if self.WHITE not in has or self.BLACK not in has:
+        if not colored:
             return changed
 
-        # Check perimeter contiguity: colors must form at most 2 arcs (2 transitions)
+        # Count transitions (color changes) and cells per color along perimeter
         transitions = 0
+        wc = bc = 0
         for k in range(len(colored)):
+            if colored[k][1] == self.WHITE: wc += 1
+            else: bc += 1
             if colored[k][1] != colored[(k + 1) % len(colored)][1]:
                 transitions += 1
         if transitions > 2:
             return None
+        if transitions == 0:
+            return changed  # only one color present, no arcs to constrain
 
         for color in (self.WHITE, self.BLACK):
+            cnt = wc if color == self.WHITE else bc
+            if cnt < 2:
+                continue
             opp = self.BLACK if color == self.WHITE else self.WHITE
             idxs = [i for i, v in colored if v == color]
-            if len(idxs) < 2:
-                continue
 
             for k in range(len(idxs)):
                 i = idxs[k]
@@ -756,12 +850,12 @@ class Solver:
                 # Skip if opposite color blocks this arc
                 if any(self.g[peri[a][0]][peri[a][1]] == opp for a in arc):
                     continue
-                # Fill unknowns on this arc
-                for a in arc:
-                    if self.g[peri[a][0]][peri[a][1]] == self.UNKNOWN:
-                        if not self._set(peri[a][0], peri[a][1], color):
-                            return None
-                        changed = True
+                # Fill unknowns on this arc in one batch
+                arc_unknowns = [peri[a] for a in arc if self.g[peri[a][0]][peri[a][1]] == self.UNKNOWN]
+                if arc_unknowns:
+                    if not self._batch_set(arc_unknowns, color, rule_perimeter=False):
+                        return None
+                    changed = True
 
         return changed
 
@@ -850,9 +944,11 @@ class Solver:
             if first:
                 break
 
-        visited = [[False] * N for _ in range(N)]
+        self._visit_gen += 1
+        gen = self._visit_gen
+        visited = self._visited
         q = deque([first])
-        visited[first[0]][first[1]] = True
+        visited[first[0]][first[1]] = gen
         found = 1
 
         while q and found < total:
@@ -861,11 +957,11 @@ class Solver:
                 nr, nc = cr + dr, cc + dc
                 if not (0 <= nr < N and 0 <= nc < N):
                     continue
-                if visited[nr][nc]:
+                if visited[nr][nc] == gen:
                     continue
                 nv = g[nr][nc]
                 if nv == color or nv == self.UNKNOWN:
-                    visited[nr][nc] = True
+                    visited[nr][nc] = gen
                     q.append((nr, nc))
                     if nv == color:
                         found += 1
@@ -878,22 +974,24 @@ class Solver:
         """从 UNKNOWN cell (sr,sc) 出发，仅在 UNKNOWN 中 BFS，
         返回遇到的第一个 O 色 cell，若无则返回 None。"""
         N, g = self.N, self.g
-        visited = [[False] * N for _ in range(N)]
+        self._visit_gen += 1
+        gen = self._visit_gen
+        visited = self._visited
         q = deque([(sr, sc)])
-        visited[sr][sc] = True
+        visited[sr][sc] = gen
         while q:
             cr, cc = q.popleft()
             for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                 nr, nc = cr + dr, cc + dc
                 if not (0 <= nr < N and 0 <= nc < N):
                     continue
-                if visited[nr][nc]:
+                if visited[nr][nc] == gen:
                     continue
                 nv = g[nr][nc]
                 if nv == opp:
                     return (nr, nc)
                 if nv == self.UNKNOWN:
-                    visited[nr][nc] = True
+                    visited[nr][nc] = gen
                     q.append((nr, nc))
         return None
 
@@ -927,10 +1025,12 @@ class Solver:
             return True
 
         # BFS from first recorded through O+UNKNOWN to reach all recorded
-        visited = [[False] * N for _ in range(N)]
+        self._visit_gen += 1
+        gen = self._visit_gen
+        visited = self._visited
         first = next(iter(recorded))
         q = deque([first])
-        visited[first[0]][first[1]] = True
+        visited[first[0]][first[1]] = gen
         reachable = {first}
 
         while q and len(reachable) < len(recorded):
@@ -939,11 +1039,11 @@ class Solver:
                 nr, nc = cr + dr, cc + dc
                 if not (0 <= nr < N and 0 <= nc < N):
                     continue
-                if visited[nr][nc]:
+                if visited[nr][nc] == gen:
                     continue
                 nv = g[nr][nc]
                 if nv == opp or nv == self.UNKNOWN:
-                    visited[nr][nc] = True
+                    visited[nr][nc] = gen
                     q.append((nr, nc))
                     if nv == opp and (nr, nc) in recorded:
                         reachable.add((nr, nc))
@@ -956,7 +1056,7 @@ class Solver:
         Falls back to row-major first unknown when _stack is empty."""
         N, g = self.N, self.g
         if self._stack:
-            pr, pc, _ = self._stack[-1]
+            _, pr, pc, _ = self._stack[-1]
             best, best_dist = None, N * N
             for r in range(N):
                 for c in range(N):
@@ -996,7 +1096,7 @@ class Solver:
             return True
         # Try-both: before DFS, try each unknown with both colors.
         # If one color causes conflict, the other is forced.
-        if self.verbose:
+        if self.debug:
             print(f"\n── Try-Both Round 0 ──")
             self.pc()
         _try_round = 0
@@ -1005,7 +1105,7 @@ class Solver:
             tb = self._try_both()
             if not tb:
                 break
-            if self.verbose:
+            if self.debug:
                 print(f"\n── Try-Both Round {_try_round} ──")
                 self.pc()
             if self._done():
@@ -1032,34 +1132,59 @@ class Solver:
         for co in order:
             sp = self._snap()
             if self._set(r, c, co):
-                if self._dfs():
+                # Try both on UNKNOWN cells in 5×5 neighborhood
+                ok = True
+                for dr in range(-2, 3):
+                    for dc in range(-2, 3):
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < self.N and 0 <= nc < self.N and self.g[nr][nc] == self.UNKNOWN:
+                            if self._try_one_cell_both(nr, nc) is False:
+                                ok = False
+                                break
+                    if not ok:
+                        break
+                if ok and self._dfs():
                     return True
             self._backtrack(sp)
         return False
 
     # ---- animation ----
     def animate(self, delay=None, full_trace=False):
-        """Animate solving process. If full_trace, show backtracking; otherwise only final assignments.
-        Default delay: 0.02 for clean trace, 0.005 for full trace."""
+        """Animate solving process.
+        full_trace=True: replay self._trace (all steps including backtracking).
+        full_trace=False: replay self._stack (final assignments only, clean)."""
         import time as _time
         import os as _os
         import sys as _sys
         if delay is None:
-            delay = 0.01
+            delay = 0.02
         self.g = [row[:] for row in self._initial_grid]
         steps = self._trace if full_trace else self._stack
-        total = len(steps)
+        total = len(self._trace)
+        # Initialize live counters from initial grid
+        wc = sum(row.count(self.WHITE) for row in self.g)
+        bc = sum(row.count(self.BLACK) for row in self.g)
+        uc = sum(row.count(self.UNKNOWN) for row in self.g)
         _os.system('clear')
         print(f"初始谜题 ({total} 步待求解)")
         self.pc()
         _time.sleep(2)
         WB = "\033[47m\033[30m"; BB = "\033[40m\033[97m"; GB = "\033[100m\033[97m"; RE = "\033[0m"
-        for i, (r, c, v) in enumerate(steps):
+        _pw = len(str(total))
+        _fw = len(str(self.N * self.N))
+        for step, r, c, v in steps:
+            old = self.g[r][c]
+            if old == 0: uc -= 1
+            elif old == 1: wc -= 1
+            else: bc -= 1
+            if v == 0: uc += 1
+            elif v == 1: wc += 1
+            else: bc += 1
             self.g[r][c] = v
-            remaining = total - i - 1
+            remaining = total - step - 1
             # Update progress title (row 1)
-            _sys.stdout.write(f"\033[1;1H求解进度: {remaining}/{total} 步待执行" + " " * 20)
-            # Update cell at (r,c): data rows start at row 4, cell col at 4 + c*3
+            _sys.stdout.write(f"\033[1;1H求解进度: {remaining:>{_pw}}/{total} 步待执行" + " " * 20)
+            # Update cell
             _sys.stdout.write(f"\033[{r + 4};{4 + c * 3}H")
             if v == self.WHITE:
                 _sys.stdout.write(f"{WB} ○ {RE}")
@@ -1067,8 +1192,9 @@ class Solver:
                 _sys.stdout.write(f"{BB} ● {RE}")
             else:
                 _sys.stdout.write(f"{GB} · {RE}")
-            # Move cursor below grid to keep terminal tidy
-            _sys.stdout.write(f"\033[{self.N + 6};1H")
+            # Update live counters below grid
+            _sys.stdout.write(f"\033[{self.N + 6};1H{WB} ○ {wc:>{_fw}} {RE}{BB} ● {bc:>{_fw}} {RE}{GB} · {uc:>{_fw}} {RE}   ")
+            _sys.stdout.write(f"\033[{self.N + 7};1H")
             _sys.stdout.flush()
             _time.sleep(delay)
         _time.sleep(2)
@@ -1103,6 +1229,14 @@ class Solver:
         print(f"验证: {'✓' if ok else '✗'}")
         t = elapsed if elapsed is not None else time.time() - self.t0
         print(f"时间={t:.3f}s 节点={self.nodes} trace={len(self._trace)}")
+        if self._timing:
+            parts = [f"2×2={self._timing.get('2x2',0)*1000:.1f}ms",
+                     f"2×3/3×2={self._timing.get('2x3_3x2',0)*1000:.1f}ms",
+                     f"surrounded={self._timing.get('surrounded',0)*1000:.1f}ms",
+                     f"bfs={self._timing.get('bfs',0)*1000:.1f}ms",
+                     f"batch={self._timing.get('batch_set',0)*1000:.1f}ms",
+                     f"perimeter={self._timing.get('perimeter',0)*1000:.1f}ms"]
+            print("  " + " | ".join(p for p in parts if not p.startswith("0.")))
         print("=" * 50)
 
 def decode(t: str, n: int):
@@ -1141,13 +1275,13 @@ def encode(grid: list[list[int]]) -> str:
     return ''.join(result)
 
 
-def solve(grid, tl=5.0, vb=True):
-    s = Solver(time_limit=tl, verbose=vb)
+def solve(grid, tl=5.0, debug=True):
+    s = Solver(time_limit=tl, debug=debug)
     s.load(grid)
-    if vb:
+    if debug:
         print(f"\n{s.N}x{s.N}")
         s.pc()
     ok = s.solve()
-    if ok and vb: s.ps()
-    elif not ok and vb: print(f"\n❌ ({s.nodes} nodes)")
+    if ok and debug: s.ps()
+    elif not ok and debug: print(f"\n❌ ({s.nodes} nodes)")
     return ok, s

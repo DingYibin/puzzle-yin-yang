@@ -22,7 +22,7 @@ for path in EXAMPLES:
     stacks = []
     nodes_list = []
     for i in range(RUNS):
-        s = Solver(time_limit=TIMEOUT, verbose=False)
+        s = Solver(time_limit=TIMEOUT, debug=False)
         s.load([row[:] for row in grid])
         t0 = time.perf_counter()
         ok = s.solve()

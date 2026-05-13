@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Load from JSON**: `uv run python main.py --load puzzles/file.json`
 - **Save puzzle**: `uv run python main.py --save`
 - **Time limit**: `uv run python main.py --time 10.0` (default 10.0s)
-- **Verbose mode**: `uv run python main.py --verbose` (prints grid state at each step)
+- **Debug mode**: `uv run python main.py --debug` (prints grid state at each step)
 - **Animation**: `uv run python main.py --trace` (clean solving steps) / `--trace-full` (with backtracking)
 - **Animation delay**: `uv run python main.py --trace --trace-delay 50` (in milliseconds, default 10ms)
 - **Disable DFS**: `uv run python main.py --no-dfs` (pure deduction only)
@@ -43,19 +43,22 @@ No test framework or tests configured yet.
 4. `_surrounded()` — Surrounded cell / single unknown exit (Rule 4)
 5. `_connectivity_expand()` — Union-Find bridge rule (connectivity-driven forcing)
 
-**Try-both** (`_try_both`): For each unknown cell (sorted by fewest unknown neighbors first, then distance to center), try WHITE. If WHITE fails → BLACK is forced (or unsolvable). If WHITE succeeds, try BLACK: if BLACK fails → WHITE is forced. Loops until no more forced cells. Relies on `_set()` for all propagation — no separate `_propagate()` call.
+**Try-both** (`_try_both`): Sorts unknown cells by fewest unknown neighbors first, then distance to center. For each, delegates to `_try_one_cell_both(r, c)`:
+  - Try WHITE. If WHITE fails → force BLACK (or conflict if BLACK also fails).
+  - If WHITE succeeds, try BLACK. If BLACK fails → force WHITE. If both OK → skip.
+  - Returns `True` (forced), `False` (conflict), or `None` (both viable, skip).
 
 Each try includes a localized opposite-color connectivity check (`_check_opposite_connectivity_at`) that BFS from unknown neighbors to find opposite-color cells, then verifies they can all reach each other through UNKNOWN cells. This prunes invalid branches early, often eliminating DFS entirely.
 
 DFS can be disabled via `dfs_enabled=False` / `--no-dfs` flag.
 
-**DFS** (`_dfs`): Picks a cell via `_pick()`, tries WHITE/BLACK (ordered by neighbor majority), recurses. On timeout → False. On leaf (`_uc == 0`) → `_ok()` verifies full connectivity.
+**DFS** (`_dfs`): Picks a cell via `_pick()`, tries WHITE/BLACK (ordered by neighbor majority). After each successful `_set()`, runs `_try_one_cell_both` on every UNKNOWN cell in the 3×3 neighborhood to absorb local forced deductions early, reducing DFS branch explosion. Recurses. On timeout → False. On leaf (`_uc == 0`) → `_ok()` verifies full connectivity.
 
 ### Propagation Rules
 
 - **Rule 1 — 2×2 same-color** (`_preprocess_2x2` / `_rule_2x2_at`): If any 2×2 block has 3 cells of the same color, the 4th is forced to the opposite color.
 - **Rule 2 — 2×2 diagonal** (`_preprocess_2x2` / `_rule_2x2_at`): If a 2×2 block has a diagonal pair of color C and one corner of color O, the last corner must be C.
-- **Rule 3 — Perimeter contiguity** (`_perimeter`): On the outer boundary, same-color cells form contiguous arcs. If two cells of color C are on the perimeter with no opposite color on the arc between them, all unknowns on that arc are forced to C.
+- **Rule 3 — Perimeter contiguity** (`_perimeter`): On the outer boundary, same-color cells form contiguous arcs. If two cells of color C are on the perimeter with no opposite color on the arc between them, all unknowns on that arc are forced to C. The perimeter cell list `_peri` is computed once in `load()`. Early exit when `transitions == 0` (one color only) or a color has a single cell on the perimeter.
 - **Rule 4 — Surrounded & single exit** (`_surrounded`, also in `_set`): (a) If an unknown cell has all known neighbors of the same color, set it to that color. (b) If a colored cell has exactly 1 unknown neighbor and all other known neighbors are the opposite color, that unknown must match the colored cell.
 - **Rule 5 — 2×3/3×2 corner** (`_corner3`, also in `_set`): In a 2×3 (horizontal) or 3×2 (vertical) area, if the 4 corners have 3 of one color and 1 of the other color, the edge middle adjacent to the minority corner must be the minority color.
 - **Bridge rule** (`_connectivity_expand`): Union-Find based. If a color has 2+ connected components and a component has exactly 1 unknown boundary cell, force that cell to the component's color. 0 boundary → conflict. Includes fast `_absorb()` to merge components after forcing.
@@ -67,10 +70,27 @@ DFS can be disabled via `dfs_enabled=False` / `--no-dfs` flag.
 - `_rule_2x2_at()` — 4 surrounding 2×2 blocks (Rules 1 & 2)
 - `_rule_corner3_at()` — 4 surrounding 2×3 + 4 surrounding 3×2 blocks (Rule 5)
 - `_rule_surrounded_at()` — Surrounded checks (Rule 4)
-- `_bfs_comp()` — Bridge checks on the set cell and its opposite-color neighbors
+- `_bfs_comp()` — Bridge checks on the set cell and its opposite-color neighbors. Cascades: after finding a forced unknown, continues BFS as if it were already set, detecting further forced cells, then batch-sets them via `_batch_set(rule_bfs=False)`.
 - `_perimeter()` — Contiguity check if the cell is on the outer boundary
 
 No separate `_propagate()` loop — all propagation is recursive via `_set()`.
+
+`_batch_set(cells, v, *, rule_2x2, rule_corner3, rule_surrounded, rule_bfs, rule_perimeter)`
+sets multiple cells with a single propagation pass. Grid/counter updates
+are applied first for all cells, then the selected rules run per cell.
+Keyword-only flags control each rule; `rule_perimeter` fires only when at
+least one cell is on the boundary. Used by `_perimeter()` to batch-fill
+arcs without recursive perimeter calls.
+
+Each rule method is decorated with `@_timeit('key')` to accumulate wall-clock
+time in `self._timing` (a `dict[str, float]`). The `_timeit` decorator is
+defined at module level and uses `try/finally` to guarantee accumulation on
+every return path. Timing is displayed at the bottom of `ps()` output.
+
+All BFS-based functions (`_bfs_comp`, `_check_opposite_connectivity_at`,
+`_bfs_first_opp_from_unknown`, `_can_reach_all_same_color`) share a single
+pre-allocated int matrix `_visited` with an incrementing generation counter
+`_visit_gen`, avoiding per-call N×N allocations.
 
 ### Localized Opposite-Color Connectivity Check
 
@@ -141,12 +161,16 @@ Saved format: `{"task": "<RLE>", "puzzleWidth": N, "puzzleHeight": N, "puzzleSiz
 
 ### Trace & Animation
 
-Every `_set()` call records `(r, c, v)` to `_trace`. Undo operations via `_backtrack()` also record `(r, c, 0)` to `_trace`. The assignment stack `_stack` stores only final (non-rolled-back) assignments.
+`_trace` entries are `(step, r, c, v)` with auto-incrementing `step` index.
+`_stack` entries are `(trace_step, r, c, v)` — same order as `_trace`, where `trace_step` points to the
+corresponding `_trace` entry. Undo operations (`_backtrack()`) add a
+`(step, r, c, 0)` entry to `_trace` (0 = undo = UNKNOWN).
 
-- `animate(full_trace=False)` — replays `_stack` (clean solving steps, no backtracking). Default delay: 0.01s.
-- `animate(full_trace=True)` — replays `_trace` (full solving including backtracking). Default delay: 0.01s.
+- `animate(full_trace=False)` — replays `_stack` (final assignments, clean solving).
+- `animate(full_trace=True)` — replays `_trace` (all steps including backtracking, v=0 renders as erased).
 - CLI `--trace` triggers clean animation; `--trace-full` triggers full backtracking animation
 - `animate(delay=X)` / CLI `--trace-delay <ms>` sets per-step delay in milliseconds
+- Animation displays live ○白/●黑/·未 counts below the grid, updating each step
 
 ### Visualization
 
@@ -156,4 +180,4 @@ Terminal output uses ANSI escape codes:
 - Gray background (`·`) for UNKNOWN cells
 - Column/row headers with bold formatting
 - Verification status with ✓/✗ markers
-- `pc()` also prints `trace`, `stack`, and `uc` counts below the grid in verbose mode
+- `pc()` also prints `trace`, `stack`, and `uc` counts below the grid in debug mode
