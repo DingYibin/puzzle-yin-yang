@@ -10,6 +10,7 @@ Usage:
     uv run python main.py -p                  # Print puzzle only (no solve)
 """
 
+import random
 import sys
 import json
 import re
@@ -54,7 +55,7 @@ SIZE_MAP = {
 
 def fetch_puzzle(url: str) -> tuple:
     """
-    从网站获取谜题数据
+    从网站获取谜题数据，自动重试（最多9次），含 task 合法性检查。
 
     Returns:
         (task_str, width, height, puzzle_id, selected_date)
@@ -63,38 +64,61 @@ def fetch_puzzle(url: str) -> tuple:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "zh-CN,zh;q=0.9",
     }
-    try:
-        r = requests.get(url, headers=headers, timeout=30)
-        r.raise_for_status()
-        html = r.text
+    for _ in range(9):
+        try:
+            r = requests.get(url, headers=headers, timeout=30)
+            r.raise_for_status()
+            html = r.text
 
-        task_m = re.search(r"var\s+task\s*=\s*'([^']+)'", html)
-        task = task_m.group(1) if task_m else None
+            task_m = re.search(r"var\s+task\s*=\s*'([^']+)'", html)
+            task = task_m.group(1) if task_m else None
 
-        w_m = re.search(r'puzzleWidth\s*:\s*(\d+)', html)
-        h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
-        width = int(w_m.group(1)) if w_m else 0
-        height = int(h_m.group(1)) if h_m else 0
+            w_m = re.search(r'puzzleWidth\s*:\s*(\d+)', html)
+            h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
+            width = int(w_m.group(1)) if w_m else 0
+            height = int(h_m.group(1)) if h_m else 0
 
-        pid = None
-        id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
-        if id_m:
-            pid = id_m.group(1)
+            if task and width > 0 and is_task_valid(task):
+                pid = None
+                id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
+                if id_m:
+                    pid = id_m.group(1)
 
-        selected_date = None
-        date_m = re.search(r'<option\s+value="([^"]*)"[^>]*selected="selected"', html)
-        if date_m:
-            selected_date = date_m.group(1).strip()
-        if not selected_date:
-            date_m = re.search(r'<option[^>]+selected="selected"[^>]*>\s*([A-Za-z]+\s+\d+,\s*\d+)\s*</option>', html)
-            if date_m:
-                selected_date = date_m.group(1).strip()
+                selected_date = None
+                date_m = re.search(r'<option\s+value="([^"]*)"[^>]*selected="selected"', html)
+                if date_m:
+                    selected_date = date_m.group(1).strip()
+                if not selected_date:
+                    date_m = re.search(r'<option[^>]+selected="selected"[^>]*>\s*([A-Za-z]+\s+\d+,\s*\d+)\s*</option>', html)
+                    if date_m:
+                        selected_date = date_m.group(1).strip()
 
-        return task, width, height, pid, selected_date
+                return task, width, height, pid, selected_date
+        except Exception as e:
+            print(f"获取谜题失败: {e}")
+        d = max(0.1, min(3.0, random.gauss(1, 0.5)))
+        time.sleep(d)
+    return None, 0, 0, None, None
 
-    except Exception as e:
-        print(f"获取谜题失败: {e}")
-        return None, 0, 0, None, None
+
+def is_task_valid(task: str) -> bool:
+    """Check task RLE encoding is canonical: consecutive lowercase letters
+    must be 'z' repeated except possibly the last character."""
+    i = 0
+    n = len(task)
+    while i < n:
+        if task[i].islower():
+            j = i
+            while j < n and task[j].islower():
+                j += 1
+            if j - i > 1:
+                for k in range(i, j - 1):
+                    if task[k] != 'z':
+                        return False
+            i = j
+        else:
+            i += 1
+    return True
 
 
 def fetch_by_id(size_param: str, puzzle_id: int) -> tuple[str | None, int, int, str | None]:
@@ -119,15 +143,19 @@ def fetch_by_id(size_param: str, puzzle_id: int) -> tuple[str | None, int, int, 
             if task_m and w_m:
                 task = task_m.group(1)
                 w = int(w_m.group(1))
-                h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
-                h = int(h_m.group(1)) if h_m else w
-                pid = None
-                id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
-                if id_m:
-                    pid = id_m.group(1)
-                return task, w, h, pid
+                if is_task_valid(task):
+                    h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
+                    h = int(h_m.group(1)) if h_m else w
+                    pid = None
+                    id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
+                    if id_m:
+                        pid = id_m.group(1)
+                    return task, w, h, pid
         except Exception as e:
             print(f"获取谜题失败: {e}")
+        # 失败后随机延时 ~N(1s, 0.5s) 再重试
+        d = max(0.1, min(3.0, random.gauss(1, 0.5)))
+        time.sleep(d)
     return None, 0, 0, None
 
 
