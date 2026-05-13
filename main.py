@@ -98,37 +98,37 @@ def fetch_puzzle(url: str) -> tuple:
 
 
 def fetch_by_id(size_param: str, puzzle_id: int) -> tuple[str | None, int, int, str | None]:
-    """通过 POST 获取指定编号的谜题"""
+    """通过 POST 获取指定编号的谜题，自动重试（最多5次）。"""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "zh-CN,zh;q=0.9",
         "Content-Type": "application/x-www-form-urlencoded",
     }
-    try:
-        s = requests.Session()
-        r = s.post(
-            "https://cn.puzzle-yin-yang.com/",
-            headers=headers,
-            data=f"specific=1&size={size_param}&specid={puzzle_id}",
-            timeout=30,
-        )
-        html = r.text
-        task_m = re.search(r"var\s+task\s*=\s*'([^']+)'", html)
-        w_m = re.search(r'puzzleWidth\s*:\s*(\d+)', html)
-        if task_m and w_m:
-            task = task_m.group(1)
-            w = int(w_m.group(1))
-            h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
-            h = int(h_m.group(1)) if h_m else w
-            pid = None
-            id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
-            if id_m:
-                pid = id_m.group(1)
-            return task, w, h, pid
-        return None, 0, 0, None
-    except Exception as e:
-        print(f"获取谜题失败: {e}")
-        return None, 0, 0, None
+    for _ in range(5):
+        try:
+            s = requests.Session()
+            r = s.post(
+                "https://cn.puzzle-yin-yang.com/",
+                headers=headers,
+                data=f"specific=1&size={size_param}&specid={puzzle_id}",
+                timeout=30,
+            )
+            html = r.text
+            task_m = re.search(r"var\s+task\s*=\s*'([^']+)'", html)
+            w_m = re.search(r'puzzleWidth\s*:\s*(\d+)', html)
+            if task_m and w_m:
+                task = task_m.group(1)
+                w = int(w_m.group(1))
+                h_m = re.search(r'puzzleHeight\s*:\s*(\d+)', html)
+                h = int(h_m.group(1)) if h_m else w
+                pid = None
+                id_m = re.search(r'id="puzzleID"\s*>\s*([0-9,]+)', html)
+                if id_m:
+                    pid = id_m.group(1)
+                return task, w, h, pid
+        except Exception as e:
+            print(f"获取谜题失败: {e}")
+    return None, 0, 0, None
 
 
 def get_puzzle(size_key: str = "6") -> tuple:
@@ -295,7 +295,8 @@ def main():
             solver.animate(delay=delay_sec)
         solver.ps(elapsed=elapsed, show_grid=not animating)
     else:
-        print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {elapsed:.3f}s)")
+        t_str = f"{elapsed*1e6:.0f}μs" if elapsed < 0.001 else f"{elapsed*1000:.2f}ms" if elapsed < 1.0 else f"{elapsed:.3f}s"
+        print(f"\n❌ 未找到解 (节点: {solver.nodes}, 用时: {t_str})")
 
     if use_save and ok and not loaded_from_file:
         save_puzzle(grid, need_dfs=solver.nodes > 0, **puzzle_meta)

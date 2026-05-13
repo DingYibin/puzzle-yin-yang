@@ -1228,14 +1228,18 @@ class Solver:
         ok = self._ok()
         print(f"验证: {'✓' if ok else '✗'}")
         t = elapsed if elapsed is not None else time.time() - self.t0
-        print(f"时间={t:.3f}s 节点={self.nodes} trace={len(self._trace)}")
+        t_str = f"{t*1e6:.0f}μs" if t < 0.001 else f"{t*1000:.2f}ms" if t < 1.0 else f"{t:.3f}s"
+        print(f"时间={t_str} 节点={self.nodes} trace={len(self._trace)}")
         if self._timing:
-            parts = [f"2×2={self._timing.get('2x2',0)*1000:.1f}ms",
-                     f"2×3/3×2={self._timing.get('2x3_3x2',0)*1000:.1f}ms",
-                     f"surrounded={self._timing.get('surrounded',0)*1000:.1f}ms",
-                     f"bfs={self._timing.get('bfs',0)*1000:.1f}ms",
-                     f"batch={self._timing.get('batch_set',0)*1000:.1f}ms",
-                     f"perimeter={self._timing.get('perimeter',0)*1000:.1f}ms"]
+            def _fmt(v):
+                v_us = v * 1e6
+                return f"{v_us:.0f}μs" if v_us < 1000 else f"{v_us/1000:.2f}ms"
+            parts = [f"2×2={_fmt(self._timing.get('2x2',0))}",
+                     f"2×3/3×2={_fmt(self._timing.get('2x3_3x2',0))}",
+                     f"surrounded={_fmt(self._timing.get('surrounded',0))}",
+                     f"bfs={_fmt(self._timing.get('bfs',0))}",
+                     f"batch={_fmt(self._timing.get('batch_set',0))}",
+                     f"perimeter={_fmt(self._timing.get('perimeter',0))}"]
             print("  " + " | ".join(p for p in parts if not p.startswith("0.")))
         print("=" * 50)
 
